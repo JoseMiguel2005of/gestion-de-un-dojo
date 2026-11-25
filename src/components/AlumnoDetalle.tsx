@@ -115,16 +115,35 @@ export function AlumnoDetalle({ alumnoId }: AlumnoDetalleProps) {
 
           <Separator />
 
-          <div>
-            <p className="text-sm text-muted-foreground">Fecha de Nacimiento</p>
-            <p className="font-medium">{new Date(alumno.fecha_nacimiento).toLocaleDateString()}</p>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Fecha de Nacimiento</p>
+              <p className="font-medium">{new Date(alumno.fecha_nacimiento).toLocaleDateString()}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Instructor Asignado</p>
+              <p className="font-medium">{alumno.instructor_nombre || "Sin asignar"}</p>
+            </div>
+          </div>
+
+          <Separator />
+
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <p className="text-sm text-muted-foreground">Categoría</p>
+              <p className="font-medium">{alumno.categoria_edad_nombre || "Sin categoría"}</p>
+            </div>
+            <div>
+              <p className="text-sm text-muted-foreground">Cinta Actual</p>
+              <p className="font-medium">{alumno.cinta_nombre || "Sin cinta"}</p>
+            </div>
           </div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Información de Contacto</CardTitle>
+          <CardTitle>Información de Contacto y Emergencia</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid grid-cols-2 gap-4">
@@ -144,6 +163,48 @@ export function AlumnoDetalle({ alumnoId }: AlumnoDetalleProps) {
             <p className="text-sm text-muted-foreground">Dirección</p>
             <p className="font-medium">{alumno.direccion || "No registrada"}</p>
           </div>
+
+          {(alumno.contacto_emergencia || alumno.telefono_emergencia) && (
+            <>
+              <Separator />
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <p className="text-sm text-muted-foreground">Contacto de Emergencia</p>
+                  <p className="font-medium">{alumno.contacto_emergencia || "No registrado"}</p>
+                </div>
+                <div>
+                  <p className="text-sm text-muted-foreground">Teléfono de Emergencia</p>
+                  <p className="font-medium">{alumno.telefono_emergencia || "No registrado"}</p>
+                </div>
+              </div>
+            </>
+          )}
+
+          {(alumno.nombre_padre || alumno.nombre_madre) && (
+            <>
+              <Separator />
+              <div className="grid grid-cols-2 gap-4">
+                {alumno.nombre_padre && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Padre</p>
+                    <p className="font-medium">
+                      {alumno.nombre_padre}
+                      {alumno.telefono_padre ? ` (${alumno.telefono_padre})` : ""}
+                    </p>
+                  </div>
+                )}
+                {alumno.nombre_madre && (
+                  <div>
+                    <p className="text-sm text-muted-foreground">Madre</p>
+                    <p className="font-medium">
+                      {alumno.nombre_madre}
+                      {alumno.telefono_madre ? ` (${alumno.telefono_madre})` : ""}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </CardContent>
       </Card>
 
@@ -157,7 +218,7 @@ export function AlumnoDetalle({ alumnoId }: AlumnoDetalleProps) {
               <div>
                 <p className="text-sm text-muted-foreground">Nombre</p>
                 <p className="font-medium">
-                  {alumno.representantes.nombre}
+                  {[alumno.representantes.nombre, alumno.representantes.apellido].filter(Boolean).join(" ")}
                 </p>
               </div>
               <div>

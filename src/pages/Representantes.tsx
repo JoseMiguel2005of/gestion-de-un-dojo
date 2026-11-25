@@ -48,7 +48,7 @@ export default function Representantes() {
     if (searchType === "cedula") {
       return (rep.cedula || "").toLowerCase().includes(searchTerm.toLowerCase());
     }
-    return `${rep.nombre} ${rep.apellido}`.toLowerCase().includes(searchTerm.toLowerCase());
+    return `${rep.nombre || ""} ${rep.apellido || ""}`.toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   const handleEdit = (representanteId: string) => {
@@ -160,7 +160,7 @@ export default function Representantes() {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center py-8 text-muted-foreground">
+                  <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
                     {isEnglish ? "Loading..." : "Cargando..."}
                   </TableCell>
                 </TableRow>
@@ -175,7 +175,7 @@ export default function Representantes() {
                   <TableRow key={rep.id} className="hover:bg-green-50/30 dark:hover:bg-green-950/20">
                     <TableCell className="font-mono text-sm text-gray-700 dark:text-gray-300">{rep.cedula || "N/A"}</TableCell>
                     <TableCell className="font-medium">
-                      {rep.nombre} {rep.apellido}
+                      {[rep.nombre, rep.apellido].filter(Boolean).join(" ")}
                     </TableCell>
                     <TableCell className="text-gray-700 dark:text-gray-300">{rep.telefono || "-"}</TableCell>
                     <TableCell className="text-blue-600 dark:text-blue-400">{rep.email || "-"}</TableCell>

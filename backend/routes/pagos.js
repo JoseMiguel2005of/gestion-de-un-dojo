@@ -160,7 +160,7 @@ router.get('/precios', requireRole(STAFF_ROLES), async (req, res) => {
     const { data: alumnos, error: alumnosError } = await supabase
       .from('alumno')
       .select('*')
-      .eq('estado', 1)
+      .eq('estado', true)
       .order('nombre', { ascending: true });
 
     if (alumnosError) {
@@ -759,8 +759,8 @@ router.get('/pendientes', requireRole(STAFF_ROLES), async (req, res) => {
     // Obtener todos los alumnos activos
     const { data: alumnos, error: alumnosError } = await supabase
       .from('alumno')
-      .select('id, nombre, apellido, cedula')
-      .eq('estado', 1)
+      .select('id, nombre, cedula')
+      .eq('estado', true)
       .order('nombre', { ascending: true });
 
     if (alumnosError) {

@@ -195,7 +195,7 @@ router.post('/cintas', requireRole(ACADEMIC_ROLES), [
         nombre_en: nombre_en || null,
         color_hex: color_hex || '#FFFFFF',
         orden: orden || 99,
-        es_dan: es_dan || 0,
+        es_dan: Boolean(es_dan),
         nivel_dan: nivel_dan || null
       })
       .select()
@@ -315,7 +315,7 @@ router.put('/cintas/:id', requireRole(ACADEMIC_ROLES), [
         nombre_en: nombre_en || null,
         color_hex: color_hex || '#FFFFFF',
         orden: orden || 99,
-        es_dan: es_dan || 0,
+        es_dan: Boolean(es_dan),
         nivel_dan: nivel_dan || null
       })
       .eq('id', id);

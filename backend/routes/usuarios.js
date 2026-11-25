@@ -87,7 +87,7 @@ router.get('/instructores', requireRole(STAFF_ROLES), async (req, res) => {
       .from('usuario')
       .select('id, username, nombre_completo')
       .eq('rol', 'instructor')
-      .eq('estado', 1)
+      .eq('estado', true)
       .order('nombre_completo', { ascending: true });
 
     if (error) {

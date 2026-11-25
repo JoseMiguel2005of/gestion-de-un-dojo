@@ -73,12 +73,10 @@ async function calcularTiempoPreparacionInteligente(idCategoriaEdad, idCinta) {
 
 router.get('/', async (req, res) => {
   try {
-    const userRole = req.user?.rol || 'usuario';
+    const userRole = req.user?.rol || ROLES.USUARIO;
     const userId = req.user?.id;
+    const incluirInactivos = req.query.incluirInactivos === 'true';
     
-    // Obtener alumnos con sus relaciones básicas
-    // NO filtrar por estado aquí para que el frontend pueda mostrar todos los alumnos
-    // El frontend filtrará según sea necesario
     let alumnosQuery = supabase
       .from('alumno')
       .select(`
@@ -88,6 +86,10 @@ router.get('/', async (req, res) => {
         usuario:sensei_id(nombre_completo)
       `)
       .order('nombre', { ascending: true });
+
+    if (!incluirInactivos) {
+      alumnosQuery = alumnosQuery.eq('estado', true);
+    }
 
     // Filtrar estrictamente por propietario cuando el rol es usuario
     if (userRole === ROLES.USUARIO) {
@@ -193,13 +195,14 @@ router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    // Obtener alumno con relaciones
+    // Obtener alumno con relaciones completas
     const { data: alumno, error: alumnoError } = await supabase
       .from('alumno')
       .select(`
         *,
         categorias_edad:id_categoria_edad(nombre),
-        cintas:id_cinta(nombre, color_hex)
+        cintas:id_cinta(nombre, color_hex),
+        usuario:sensei_id(id, nombre_completo)
       `)
       .eq('id', id)
       .single();
@@ -215,12 +218,12 @@ router.get('/:id', async (req, res) => {
       });
     }
 
-    // Obtener representantes
+    // Obtener representante asociado
     const { data: representantesData, error: repError } = await supabase
       .from('alumnorepresentante')
       .select(`
         id_representante,
-        representante:id_representante(id, cedula, nombre, telefono)
+        representante:id_representante(id, cedula, nombre, apellido, telefono, email, direccion, parentesco)
       `)
       .eq('id_alumno', id)
       .limit(1);
@@ -236,13 +239,13 @@ router.get('/:id', async (req, res) => {
     }
 
     // Obtener teléfonos adicionales
-    const { data: telefonosData, error: telError } = await supabase
+    const { data: telefonosData } = await supabase
       .from('alumnotelefono')
       .select('telefono')
       .eq('id_alumno', id);
 
     // Obtener direcciones adicionales
-    const { data: direccionesData, error: dirError } = await supabase
+    const { data: direccionesData } = await supabase
       .from('alumnodireccion')
       .select('direccion')
       .eq('id_alumno', id);
@@ -253,6 +256,9 @@ router.get('/:id', async (req, res) => {
     const cinta = Array.isArray(alumno.cintas) 
       ? alumno.cintas[0] 
       : alumno.cintas;
+    const instructor = Array.isArray(alumno.usuario)
+      ? alumno.usuario[0]
+      : alumno.usuario;
 
     res.json({
       id: alumno.id,
@@ -263,9 +269,23 @@ router.get('/:id', async (req, res) => {
       id_categoria_edad: alumno.id_categoria_edad,
       id_cinta: alumno.id_cinta,
       usuario_id: alumno.usuario_id,
+      sensei_id: alumno.sensei_id || null,
+      instructor_nombre: instructor?.nombre_completo || null,
       telefono: alumno.telefono,
       email: alumno.email,
       direccion: alumno.direccion,
+      contacto_emergencia: alumno.contacto_emergencia || null,
+      telefono_emergencia: alumno.telefono_emergencia || null,
+      nombre_padre: alumno.nombre_padre || null,
+      telefono_padre: alumno.telefono_padre || null,
+      nombre_madre: alumno.nombre_madre || null,
+      telefono_madre: alumno.telefono_madre || null,
+      precio_personalizado: alumno.precio_personalizado ?? null,
+      descuento_porcentaje: alumno.descuento_porcentaje ?? 0,
+      observaciones_pago: alumno.observaciones_pago || null,
+      proximo_examen_fecha: alumno.proximo_examen_fecha || null,
+      tiempo_preparacion_meses: alumno.tiempo_preparacion_meses ?? null,
+      fecha_inscripcion: alumno.fecha_inscripcion || null,
       categoria_edad_nombre: categoriaEdad?.nombre || null,
       cinta_nombre: cinta?.nombre || null,
       cinta_color: cinta?.color_hex || null,
@@ -297,10 +317,12 @@ router.post('/', [
       fecha_nacimiento, 
       id_categoria_edad,
       id_cinta,
+      sensei_id,
       telefono, 
       email, 
       direccion,
       id_representante,
+      representante_data,
       usuario_id,
       contacto_emergencia,
       telefono_emergencia,
@@ -314,6 +336,8 @@ router.post('/', [
     } = req.body;
 
     let effectiveUsuarioId = usuario_id || null;
+    const effectiveSenseiId = req.user.rol === ROLES.USUARIO ? null : (sensei_id || null);
+
     if (req.user.rol === ROLES.USUARIO) {
       effectiveUsuarioId = req.user.id;
       const { data: existingUserAlumno } = await supabase
@@ -329,7 +353,7 @@ router.post('/', [
       }
     }
 
-    const { data: existingAlumnos, error: existingError } = await supabase
+    const { data: existingAlumnos } = await supabase
       .from('alumno')
       .select('id')
       .eq('cedula', cedula)
@@ -339,23 +363,33 @@ router.post('/', [
       return res.status(400).json({ error: 'Ya existe un alumno con esta cédula' });
     }
 
+    // Si no se envía cinta inicial, asignar automáticamente Cinta Blanca de la BD
+    let resolvedCintaId = id_cinta || null;
+    if (!resolvedCintaId) {
+      const { data: cintaBlanca } = await supabase
+        .from('cintas')
+        .select('id')
+        .or('nombre.ilike.%blanco%,orden.eq.1')
+        .order('orden', { ascending: true })
+        .limit(1);
+      if (cintaBlanca && cintaBlanca.length > 0) {
+        resolvedCintaId = cintaBlanca[0].id;
+      }
+    }
 
-    const tiempoPreparacion = await calcularTiempoPreparacionInteligente(id_categoria_edad, id_cinta);
+    const tiempoPreparacion = await calcularTiempoPreparacionInteligente(id_categoria_edad, resolvedCintaId);
     const fechaInscripcion = new Date();
     const proximoExamenFecha = new Date();
     proximoExamenFecha.setMonth(proximoExamenFecha.getMonth() + tiempoPreparacion);
 
-    let result;
-    let alumnoId;
-    
-    // Intentar insertar con todos los campos
     const alumnoData = {
       cedula,
       nombre,
       fecha_nacimiento,
       estado: true,
       id_categoria_edad: id_categoria_edad || null,
-      id_cinta: id_cinta || null,
+      id_cinta: resolvedCintaId,
+      sensei_id: effectiveSenseiId,
       telefono: telefono || null,
       email: email || null,
       direccion: direccion || null,
@@ -367,113 +401,60 @@ router.post('/', [
       telefono_madre: telefono_madre || null,
       usuario_id: effectiveUsuarioId,
       tiempo_preparacion_meses: tiempoPreparacion,
-      proximo_examen_fecha: proximoExamenFecha.toISOString(),
+      proximo_examen_fecha: proximoExamenFecha.toISOString().split('T')[0],
       fecha_inscripcion: fechaInscripcion.toISOString()
     };
 
-    try {
-      const { data: insertResult, error: insertError } = await supabase
-        .from('alumno')
-        .insert([alumnoData])
-        .select()
-        .single();
-      
-      if (insertError) {
-        throw insertError;
-      }
-      
-      result = insertResult;
-      alumnoId = result.id;
-      console.log('Alumno creado con resultado:', result, 'ID:', alumnoId);
-    } catch (error) {
-      console.log('Primer intento falló, intentando versión reducida:', error.message);
-      
-      // Intentar con campos mínimos
-      const alumnoDataReduced = {
-        cedula,
-        nombre,
-        fecha_nacimiento,
-        estado: true,
-        id_categoria_edad: id_categoria_edad || null,
-        id_cinta: id_cinta || null,
-        tiempo_preparacion_meses: tiempoPreparacion,
-        proximo_examen_fecha: proximoExamenFecha.toISOString(),
-        fecha_inscripcion: fechaInscripcion.toISOString()
-      };
-      
-      try {
-        const { data: insertResult2, error: insertError2 } = await supabase
-          .from('alumno')
-          .insert([alumnoDataReduced])
-          .select()
-          .single();
-        
-        if (insertError2) {
-          throw insertError2;
-        }
-        
-        result = insertResult2;
-        alumnoId = result.id;
-        console.log('Alumno creado con versión reducida, resultado:', result, 'ID:', alumnoId);
-      } catch (error2) {
-        console.log('Segundo intento falló, intentando versión mínima:', error2.message);
-        
-        // Intentar con campos absolutamente mínimos
-        const alumnoDataMin = {
-          cedula,
-          nombre,
-          fecha_nacimiento,
-          estado: true,
-          id_categoria_edad: id_categoria_edad || null,
-          id_cinta: id_cinta || null
-        };
-        
-        const { data: insertResult3, error: insertError3 } = await supabase
-          .from('alumno')
-          .insert([alumnoDataMin])
-          .select()
-          .single();
-        
-        if (insertError3) {
-          throw insertError3;
-        }
-        
-        result = insertResult3;
-        alumnoId = result.id;
-        console.log('Alumno creado con versión mínima, resultado:', result, 'ID:', alumnoId);
-      }
+    const { data: insertResult, error: insertError } = await supabase
+      .from('alumno')
+      .insert([alumnoData])
+      .select()
+      .single();
+
+    if (insertError || !insertResult) {
+      throw insertError || new Error('No se pudo registrar el alumno');
     }
 
-    if (!alumnoId) {
-      throw new Error('No se pudo obtener el ID del alumno creado');
-    }
+    const alumnoId = insertResult.id;
 
-    // Asignar instructor aleatorio automáticamente
-    try {
-      const { data: instructores, error: instructoresError } = await supabase
-        .from('usuario')
+    let targetRepresentanteId = id_representante || null;
+
+    if (!targetRepresentanteId && representante_data && representante_data.cedula && representante_data.nombre) {
+      const { data: existingRep } = await supabase
+        .from('representante')
         .select('id')
-        .eq('rol', 'instructor')
-        .eq('estado', 1);
-      
-      if (!instructoresError && instructores && instructores.length > 0) {
-        const instructorAleatorio = instructores[Math.floor(Math.random() * instructores.length)];
-        await supabase
-          .from('alumno')
-          .update({ sensei_id: instructorAleatorio.id })
-          .eq('id', alumnoId);
+        .eq('cedula', representante_data.cedula)
+        .limit(1);
+
+      if (existingRep && existingRep.length > 0) {
+        targetRepresentanteId = existingRep[0].id;
+      } else {
+        const { data: createdRep, error: createRepError } = await supabase
+          .from('representante')
+          .insert([{
+            cedula: representante_data.cedula,
+            nombre: representante_data.nombre,
+            apellido: representante_data.apellido || null,
+            telefono: representante_data.telefono || null,
+            email: representante_data.email || null,
+            direccion: representante_data.direccion || null,
+            parentesco: representante_data.parentesco || null,
+          }])
+          .select('id')
+          .single();
+
+        if (!createRepError && createdRep) {
+          targetRepresentanteId = createdRep.id;
+        }
       }
-    } catch (error) {
-      console.log('No se pudo asignar instructor automáticamente:', error.message);
     }
 
-    if (id_representante) {
-      try {
-        await supabase
-          .from('alumnorepresentante')
-          .insert([{ id_alumno: alumnoId, id_representante: id_representante }]);
-      } catch (error) {
-        console.log('No se pudo asociar representante:', error.message);
+    if (targetRepresentanteId) {
+      const { error: relError } = await supabase
+        .from('alumnorepresentante')
+        .insert([{ id_alumno: alumnoId, id_representante: targetRepresentanteId }]);
+      if (relError) {
+        console.error('Error asociando representante:', relError.message);
       }
     }
 
@@ -566,37 +547,50 @@ router.put('/:id', requireRole(STAFF_ROLES), [
       fecha_nacimiento, 
       id_categoria_edad,
       id_cinta, 
+      sensei_id,
       estado,
       telefono,
       email,
       direccion,
+      contacto_emergencia,
+      telefono_emergencia,
+      nombre_padre,
+      telefono_padre,
+      nombre_madre,
+      telefono_madre,
       id_representante 
     } = req.body;
 
-    const { data: existingAlumnos, error: existingError } = await supabase
-      .from('alumno')
-      .select('id')
-      .eq('cedula', cedula)
-      .neq('id', id)
-      .limit(1);
+    if (cedula) {
+      const { data: existingAlumnos } = await supabase
+        .from('alumno')
+        .select('id')
+        .eq('cedula', cedula)
+        .neq('id', id)
+        .limit(1);
 
-    if (existingAlumnos && existingAlumnos.length > 0) {
-      return res.status(400).json({ error: 'Ya existe otro alumno con esta cédula' });
+      if (existingAlumnos && existingAlumnos.length > 0) {
+        return res.status(400).json({ error: 'Ya existe otro alumno con esta cédula' });
+      }
     }
 
-    const updateData = {
-      cedula,
-      nombre,
-      fecha_nacimiento,
-      id_categoria_edad: id_categoria_edad || null,
-      id_cinta: id_cinta || null,
-      estado: estado !== undefined ? estado : true
-    };
-
-    // Agregar campos opcionales si existen
+    const updateData = {};
+    if (cedula !== undefined) updateData.cedula = cedula;
+    if (nombre !== undefined) updateData.nombre = nombre;
+    if (fecha_nacimiento !== undefined) updateData.fecha_nacimiento = fecha_nacimiento;
+    if (id_categoria_edad !== undefined) updateData.id_categoria_edad = id_categoria_edad || null;
+    if (id_cinta !== undefined) updateData.id_cinta = id_cinta || null;
+    if (sensei_id !== undefined) updateData.sensei_id = sensei_id || null;
+    if (estado !== undefined) updateData.estado = Boolean(estado);
     if (telefono !== undefined) updateData.telefono = telefono || null;
     if (email !== undefined) updateData.email = email || null;
     if (direccion !== undefined) updateData.direccion = direccion || null;
+    if (contacto_emergencia !== undefined) updateData.contacto_emergencia = contacto_emergencia || null;
+    if (telefono_emergencia !== undefined) updateData.telefono_emergencia = telefono_emergencia || null;
+    if (nombre_padre !== undefined) updateData.nombre_padre = nombre_padre || null;
+    if (telefono_padre !== undefined) updateData.telefono_padre = telefono_padre || null;
+    if (nombre_madre !== undefined) updateData.nombre_madre = nombre_madre || null;
+    if (telefono_madre !== undefined) updateData.telefono_madre = telefono_madre || null;
 
     const { error: updateError } = await supabase
       .from('alumno')
@@ -642,7 +636,7 @@ router.delete('/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Obtener información del alumno antes de eliminarlo
+    // Obtener información del alumno antes de desactivarlo (soft-delete)
     const { data: alumno, error: alumnoError } = await supabase
       .from('alumno')
       .select('id, nombre, cedula, usuario_id')
@@ -653,26 +647,23 @@ router.delete('/:id', requireRole(ADMIN_ONLY), async (req, res) => {
       return res.status(404).json({ error: 'Alumno no encontrado' });
     }
 
-    if (req.user.rol === ROLES.USUARIO && String(alumno.usuario_id) !== String(req.user.id)) {
-      return res.status(403).json({
-        error: 'Acceso denegado: no puedes consultar datos de otro alumno',
-        code: 'FORBIDDEN_RESOURCE'
-      });
-    }
-
-    // Eliminar el usuario asociado si existe
+    // Desactivar (NO borrar físicamente) el usuario asociado para permitir restauración
     if (alumno.usuario_id) {
       await supabase
         .from('usuario')
-        .delete()
+        .update({ estado: false, activo: false })
         .eq('id', alumno.usuario_id);
     }
 
-    // Marcar el alumno como eliminado
-    await supabase
+    // Marcar el alumno como inactivo (soft-delete)
+    const { error: softDeleteError } = await supabase
       .from('alumno')
       .update({ estado: false })
       .eq('id', id);
+
+    if (softDeleteError) {
+      throw softDeleteError;
+    }
 
     await registrarLog({
       usuario_id: req.user.id,
@@ -788,6 +779,16 @@ router.patch('/:id/restaurar', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
+    const { data: alumno, error: alumnoError } = await supabase
+      .from('alumno')
+      .select('id, usuario_id')
+      .eq('id', id)
+      .single();
+
+    if (alumnoError || !alumno) {
+      return res.status(404).json({ error: 'Alumno no encontrado' });
+    }
+
     const { error: updateError } = await supabase
       .from('alumno')
       .update({ estado: true })
@@ -795,6 +796,13 @@ router.patch('/:id/restaurar', requireRole(ADMIN_ONLY), async (req, res) => {
 
     if (updateError) {
       throw updateError;
+    }
+
+    if (alumno.usuario_id) {
+      await supabase
+        .from('usuario')
+        .update({ estado: true, activo: true })
+        .eq('id', alumno.usuario_id);
     }
 
     res.json({ message: 'Alumno restaurado exitosamente' });
@@ -818,13 +826,6 @@ router.delete('/:id/permanente', requireRole(ADMIN_ONLY), async (req, res) => {
 
     if (alumnoError || !alumno) {
       return res.status(404).json({ error: 'Alumno no encontrado' });
-    }
-
-    if (req.user.rol === ROLES.USUARIO && String(alumno.usuario_id) !== String(req.user.id)) {
-      return res.status(403).json({
-        error: 'Acceso denegado: no puedes consultar datos de otro alumno',
-        code: 'FORBIDDEN_RESOURCE'
-      });
     }
 
     if (alumno.estado === true) {
@@ -886,7 +887,7 @@ router.get('/senseis/disponibles', requireRole(STAFF_ROLES), async (req, res) =>
       .from('usuario')
       .select('id, nombre_completo, username')
       .eq('rol', 'instructor')
-      .eq('estado', 1)
+      .eq('estado', true)
       .order('nombre_completo', { ascending: true });
 
     if (senseisError) {
@@ -902,7 +903,7 @@ router.get('/senseis/disponibles', requireRole(STAFF_ROLES), async (req, res) =>
 
 
 router.put('/:id/sensei', requireRole(ACADEMIC_ROLES), [
-  body('sensei_id').isInt().withMessage('ID del sensei debe ser un número válido')
+  body('sensei_id').optional({ nullable: true }).isInt().withMessage('ID del sensei debe ser un número válido')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -913,22 +914,23 @@ router.put('/:id/sensei', requireRole(ACADEMIC_ROLES), [
     const { id } = req.params;
     const { sensei_id } = req.body;
 
-    
-    const { data: sensei, error: senseiError } = await supabase
-      .from('usuario')
-      .select('id')
-      .eq('id', sensei_id)
-      .eq('rol', 'instructor')
-      .eq('estado', 1)
-      .single();
+    if (sensei_id) {
+      const { data: sensei, error: senseiError } = await supabase
+        .from('usuario')
+        .select('id')
+        .eq('id', sensei_id)
+        .eq('rol', 'instructor')
+        .eq('estado', true)
+        .single();
 
-    if (senseiError || !sensei) {
-      return res.status(400).json({ error: 'Sensei no encontrado o no válido' });
+      if (senseiError || !sensei) {
+        return res.status(400).json({ error: 'Sensei no encontrado o no válido' });
+      }
     }
 
     const { error: updateError } = await supabase
       .from('alumno')
-      .update({ sensei_id: sensei_id })
+      .update({ sensei_id: sensei_id || null })
       .eq('id', id);
 
     if (updateError) {

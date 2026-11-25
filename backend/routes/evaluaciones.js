@@ -73,10 +73,13 @@ router.get('/', requireRole([...ACADEMIC_ROLES, ROLES.USUARIO]), async (req, res
       evaluacionesIds = [...new Set(evaluacionesRel.map(r => r.id_evaluacion))];
     }
 
-    // Obtener evaluaciones
+    // Obtener evaluaciones con nombre del instructor si existe
     let evaluacionesQuery = supabase
       .from('evaluacion')
-      .select('*')
+      .select(`
+        *,
+        usuario:instructor_id(id, nombre_completo)
+      `)
       .order('fecha', { ascending: false });
 
     if (userRole === 'usuario' && userId && evaluacionesIds.length > 0) {
@@ -131,8 +134,11 @@ router.get('/', requireRole([...ACADEMIC_ROLES, ROLES.USUARIO]), async (req, res
         })
         .filter(Boolean);
 
+      const instructorObj = Array.isArray(evaluacion.usuario) ? evaluacion.usuario[0] : evaluacion.usuario;
+
       return {
         ...evaluacion,
+        instructor_nombre: instructorObj?.nombre_completo || null,
         niveles: niveles.join(', ') || null,
         categoria_examen: determinarCategoriaExamen(evaluacion.nombre)
       };
@@ -211,16 +217,14 @@ router.post('/', requireRole(ACADEMIC_ROLES), [
     const { nombre, fecha, hora, descripcion, instructor_id, alumnos_ids } = req.body;
 
     // Crear la evaluación
-    let evaluacionData = {
+    const evaluacionData = {
       nombre,
       fecha,
-      descripcion: descripcion || null
+      hora: hora || null,
+      descripcion: descripcion || null,
+      instructor_id: instructor_id || null,
+      estado: 'pendiente'
     };
-
-    // Intentar incluir hora si está disponible
-    if (hora) {
-      evaluacionData.hora = hora;
-    }
 
     const { data: evaluacion, error: evalError } = await supabase
       .from('evaluacion')
@@ -358,15 +362,21 @@ router.put('/:id', requireRole(ACADEMIC_ROLES), [
     }
 
     const { id } = req.params;
-    const { nombre, fecha, descripcion } = req.body;
+    const { nombre, fecha, hora, descripcion, instructor_id, estado } = req.body;
+
+    const updatePayload = {
+      nombre,
+      fecha,
+      descripcion: descripcion || null
+    };
+
+    if (hora !== undefined) updatePayload.hora = hora || null;
+    if (instructor_id !== undefined) updatePayload.instructor_id = instructor_id || null;
+    if (estado !== undefined) updatePayload.estado = estado;
 
     const { error: updateError } = await supabase
       .from('evaluacion')
-      .update({
-        nombre,
-        fecha,
-        descripcion: descripcion || null
-      })
+      .update(updatePayload)
       .eq('id', id);
 
     if (updateError) {
@@ -516,7 +526,7 @@ router.get('/:id/resultados', requireRole([...ACADEMIC_ROLES, ROLES.USUARIO]), a
     const resultados = (alumnoEvaluaciones || [])
       .map(ae => {
         const alumno = Array.isArray(ae.alumno) ? ae.alumno[0] : ae.alumno;
-        if (!alumno || alumno.estado !== true && alumno.estado !== 1) {
+        if (!alumno || alumno.estado !== true) {
           return null;
         }
         

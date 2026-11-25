@@ -112,7 +112,11 @@ router.get('/', async (req, res) => {
         id: rep.id,
         cedula: rep.cedula,
         nombre: rep.nombre,
-        telefono: rep.telefono,
+        apellido: rep.apellido || null,
+        telefono: rep.telefono || null,
+        email: rep.email || null,
+        direccion: rep.direccion || null,
+        parentesco: rep.parentesco || null,
         alumnos_nombres: alumnosNombres || null
       };
     });
@@ -196,7 +200,7 @@ router.post('/', [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { cedula, nombre, telefono } = req.body;
+    const { cedula, nombre, apellido, telefono, email, direccion, parentesco } = req.body;
 
     // Verificar si la cédula ya existe
     const { data: existingRepresentantes } = await supabase
@@ -211,7 +215,15 @@ router.post('/', [
 
     const { data: result, error: insertError } = await supabase
       .from('representante')
-      .insert([{ cedula, nombre, telefono: telefono || null }])
+      .insert([{
+        cedula,
+        nombre,
+        apellido: apellido || null,
+        telefono: telefono || null,
+        email: email || null,
+        direccion: direccion || null,
+        parentesco: parentesco || null
+      }])
       .select()
       .single();
 
@@ -241,7 +253,7 @@ router.put('/:id', requireRole(STAFF_ROLES), [
     }
 
     const { id } = req.params;
-    const { cedula, nombre, telefono } = req.body;
+    const { cedula, nombre, apellido, telefono, email, direccion, parentesco } = req.body;
 
     // Verificar si la cédula ya existe en otro representante
     const { data: existingRepresentantes } = await supabase
@@ -257,7 +269,15 @@ router.put('/:id', requireRole(STAFF_ROLES), [
 
     const { error: updateError } = await supabase
       .from('representante')
-      .update({ cedula, nombre, telefono: telefono || null })
+      .update({
+        cedula,
+        nombre,
+        apellido: apellido || null,
+        telefono: telefono || null,
+        email: email || null,
+        direccion: direccion || null,
+        parentesco: parentesco || null
+      })
       .eq('id', id);
 
     if (updateError) {

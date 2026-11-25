@@ -107,57 +107,11 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-// Función para asignar instructores a alumnos existentes sin instructor (modificada para Supabase)
-const asignarInstructoresIniciales = async () => {
-  try {
-    // Obtener todos los instructores activos
-    const { data: instructores, error: errorInstructores } = await supabase
-      .from('usuario')
-      .select('id')
-      .eq('rol', 'instructor')
-      .eq('estado', 1);
-
-    if (errorInstructores || instructores.length === 0) {
-      console.log('⚠️ No hay instructores disponibles para asignar.');
-      return;
-    }
-
-    // Obtener alumnos activos sin instructor
-    const { data: alumnosSinInstructor, error: errorAlumnos } = await supabase
-      .from('alumno')
-      .select('id, nombre')
-      .eq('estado', 1)
-      .or('sensei_id.is.null,sensei_id.eq.0');
-
-    if (errorAlumnos || alumnosSinInstructor.length === 0) {
-      console.log('✓ Todos los alumnos ya tienen un instructor asignado.');
-      return;
-    }
-
-    // Asignar instructor aleatorio a cada alumno
-    for (const alumno of alumnosSinInstructor) {
-      const instructorAleatorio = instructores[Math.floor(Math.random() * instructores.length)];
-      const { error: updateError } = await supabase
-        .from('alumno')
-        .update({ sensei_id: instructorAleatorio.id })
-        .eq('id', alumno.id);
-
-      if (updateError) {
-        console.error(`Error actualizando alumno ${alumno.id}:`, updateError.message);
-      }
-    }
-
-    console.log(`✓ Se asignaron instructores a ${alumnosSinInstructor.length} alumno(s) existente(s).`);
-  } catch (error) {
-    console.error('⚠️ Error asignando instructores iniciales:', error.message);
-  }
-};
-
 // Función para inicializar el servidor (solo para desarrollo local)
 const startServer = async () => {
   try {
-    // Probar conexión a Supabase (en lugar de testConnection)
-    const { data, error } = await supabase.from('usuario').select('id').limit(1);  // Prueba simple
+    // Probar conexión a Supabase
+    const { error } = await supabase.from('usuario').select('id').limit(1);
     if (error) {
       console.error('❌ No se pudo conectar a Supabase. Verifica las credenciales.');
       process.exit(1);
@@ -172,9 +126,6 @@ const startServer = async () => {
       console.warn('   La recuperación de contraseña podría no funcionar.');
       console.warn('   Revisa los logs anteriores para más detalles.\n');
     }
-
-    // Asignar instructores a alumnos existentes sin instructor
-    await asignarInstructoresIniciales();
 
     app.listen(PORT, () => {
       console.log(`🚀 Servidor ejecutándose en http://localhost:${PORT}`);

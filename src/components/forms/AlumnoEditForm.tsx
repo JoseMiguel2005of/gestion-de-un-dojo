@@ -16,8 +16,15 @@ const alumnoSchema = z.object({
   telefono: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")).nullable(),
   direccion: z.string().optional(),
+  contacto_emergencia: z.string().optional(),
+  telefono_emergencia: z.string().optional(),
+  nombre_padre: z.string().optional(),
+  telefono_padre: z.string().optional(),
+  nombre_madre: z.string().optional(),
+  telefono_madre: z.string().optional(),
   categoria_edad_id: z.string().optional(),
   cinta_id: z.string().optional(),
+  sensei_id: z.string().optional(),
   representante_id: z.string().optional(),
   estado: z.union([z.boolean(), z.number()]).default(true),
 });
@@ -33,6 +40,7 @@ export function AlumnoEditForm({ alumnoId, onSuccess }: AlumnoEditFormProps) {
   const [loading, setLoading] = useState(false);
   const [categoriasEdad, setCategoriasEdad] = useState<any[]>([]);
   const [cintas, setCintas] = useState<any[]>([]);
+  const [senseis, setSenseis] = useState<any[]>([]);
   const [representantes, setRepresentantes] = useState<any[]>([]);
   const [categoriasPermitidas, setCategoriasPermitidas] = useState<any[]>([]);
 
@@ -73,12 +81,16 @@ export function AlumnoEditForm({ alumnoId, onSuccess }: AlumnoEditFormProps) {
 
   const fetchData = async () => {
     try {
-      const alumno = await apiClient.getAlumno(alumnoId);
-      const categoriasData = await apiClient.getCategoriasEdad();
+      const [alumno, categoriasData, cintasData, senseisData, representantesData] = await Promise.all([
+        apiClient.getAlumno(alumnoId),
+        apiClient.getCategoriasEdad(),
+        apiClient.getCintas(),
+        apiClient.getSenseisDisponibles().catch(() => []),
+        apiClient.getRepresentantes(),
+      ]);
       setCategoriasEdad(categoriasData || []);
-      const cintasData = await apiClient.getCintas();
       setCintas(cintasData || []);
-      const representantesData = await apiClient.getRepresentantes();
+      setSenseis(senseisData || []);
       setRepresentantes(representantesData || []);
 
       if (alumno) {
@@ -91,9 +103,16 @@ export function AlumnoEditForm({ alumnoId, onSuccess }: AlumnoEditFormProps) {
         setValue("telefono", alumno.telefono || "");
         setValue("email", alumno.email || "");
         setValue("direccion", alumno.direccion || "");
+        setValue("contacto_emergencia", alumno.contacto_emergencia || "");
+        setValue("telefono_emergencia", alumno.telefono_emergencia || "");
+        setValue("nombre_padre", alumno.nombre_padre || "");
+        setValue("telefono_padre", alumno.telefono_padre || "");
+        setValue("nombre_madre", alumno.nombre_madre || "");
+        setValue("telefono_madre", alumno.telefono_madre || "");
         setValue("cinta_id", String(alumno.id_cinta || ""));
-        setValue("representante_id", String(alumno.representante_id || ""));
-        setValue("estado", alumno.estado);
+        setValue("sensei_id", alumno.sensei_id ? String(alumno.sensei_id) : "none");
+        setValue("representante_id", alumno.representante_id ? String(alumno.representante_id) : "none");
+        setValue("estado", Boolean(alumno.estado));
 
         if (fechaFormateada && categoriasData && categoriasData.length > 0) {
           const filtradas = categoriasData.filter((cat: any) => 
@@ -171,10 +190,17 @@ export function AlumnoEditForm({ alumnoId, onSuccess }: AlumnoEditFormProps) {
         telefono: data.telefono || null,
         email: data.email || null,
         direccion: data.direccion || null,
+        contacto_emergencia: data.contacto_emergencia || null,
+        telefono_emergencia: data.telefono_emergencia || null,
+        nombre_padre: data.nombre_padre || null,
+        telefono_padre: data.telefono_padre || null,
+        nombre_madre: data.nombre_madre || null,
+        telefono_madre: data.telefono_madre || null,
         id_categoria_edad: data.categoria_edad_id ? parseInt(data.categoria_edad_id) : null,
         id_cinta: data.cinta_id ? parseInt(data.cinta_id) : null,
-        id_representante: data.representante_id ? parseInt(data.representante_id) : null,
-        estado: data.estado === true || data.estado === 1 ? 1 : 0,
+        sensei_id: data.sensei_id && data.sensei_id !== "none" ? parseInt(data.sensei_id) : null,
+        id_representante: data.representante_id && data.representante_id !== "none" ? parseInt(data.representante_id) : null,
+        estado: data.estado === true || data.estado === 1,
       };
       
       await apiClient.updateAlumno(alumnoId, payload);
@@ -248,6 +274,42 @@ export function AlumnoEditForm({ alumnoId, onSuccess }: AlumnoEditFormProps) {
         <Input id="direccion" {...register("direccion")} />
       </div>
 
+      <div className="border-t pt-4 space-y-3">
+        <h4 className="font-semibold text-sm">Contacto de Emergencia</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="contacto_emergencia">Nombre del Contacto</Label>
+            <Input id="contacto_emergencia" {...register("contacto_emergencia")} />
+          </div>
+          <div>
+            <Label htmlFor="telefono_emergencia">Teléfono de Emergencia</Label>
+            <Input id="telefono_emergencia" {...register("telefono_emergencia")} />
+          </div>
+        </div>
+      </div>
+
+      <div className="border-t pt-4 space-y-3">
+        <h4 className="font-semibold text-sm">Información de Padres</h4>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <Label htmlFor="nombre_padre">Nombre del Padre</Label>
+            <Input id="nombre_padre" {...register("nombre_padre")} />
+          </div>
+          <div>
+            <Label htmlFor="telefono_padre">Teléfono del Padre</Label>
+            <Input id="telefono_padre" {...register("telefono_padre")} />
+          </div>
+          <div>
+            <Label htmlFor="nombre_madre">Nombre de la Madre</Label>
+            <Input id="nombre_madre" {...register("nombre_madre")} />
+          </div>
+          <div>
+            <Label htmlFor="telefono_madre">Teléfono de la Madre</Label>
+            <Input id="telefono_madre" {...register("telefono_madre")} />
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="categoria_edad_id">Categoría de Edad</Label>
@@ -300,17 +362,41 @@ export function AlumnoEditForm({ alumnoId, onSuccess }: AlumnoEditFormProps) {
         </div>
       </div>
 
-      <div>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <Label htmlFor="sensei_id">Instructor Asignado (Sensei)</Label>
+          <Select
+            value={watch("sensei_id") || "none"}
+            onValueChange={(value) => setValue("sensei_id", value)}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder="Seleccionar instructor" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">Sin asignar</SelectItem>
+              {senseis.map((sensei) => (
+                <SelectItem key={sensei.id} value={String(sensei.id)}>
+                  {sensei.nombre_completo}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
         <div>
           <Label htmlFor="representante_id">Representante</Label>
-          <Select value={watch("representante_id") || ""} onValueChange={(value) => setValue("representante_id", value)}>
+          <Select
+            value={watch("representante_id") || "none"}
+            onValueChange={(value) => setValue("representante_id", value)}
+          >
             <SelectTrigger>
               <SelectValue placeholder="Seleccionar representante" />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="none">Sin representante</SelectItem>
               {representantes.map((rep) => (
                 <SelectItem key={rep.id} value={String(rep.id)}>
-                  {rep.nombre} {rep.apellido}
+                  {[rep.nombre, rep.apellido].filter(Boolean).join(" ")} ({rep.cedula})
                 </SelectItem>
               ))}
             </SelectContent>

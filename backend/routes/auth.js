@@ -382,49 +382,25 @@ router.post('/forgot-password', passwordResetLimiter, [
     console.log(`   Token de recuperación generado (expira: ${expiresAt.toISOString()})`);
 
     // Eliminar tokens anteriores no usados del mismo usuario
-    console.log('   Eliminando tokens anteriores...');
     const { error: deleteError } = await supabase
       .from('password_reset_tokens')
       .delete()
       .eq('usuario_id', user.id)
-      .or('used.eq.false,used.eq.0');
+      .eq('used', false);
 
     if (deleteError) {
       console.error('⚠️ Error eliminando tokens anteriores (continuando):', deleteError);
     }
 
     // Guardar token en la base de datos
-    console.log('   Guardando nuevo token en la base de datos...');
-    
-    // Intentar con 0 primero (tipo numérico), si falla intentar con false (tipo boolean)
-    let insertError;
-    
-    // Primero intentar con 0 (numérico)
-    const result1 = await supabase
+    const { error: insertError } = await supabase
       .from('password_reset_tokens')
       .insert({
         usuario_id: user.id,
         token: resetToken,
         expires_at: expiresAt.toISOString(),
-        used: 0
+        used: false
       });
-    
-    if (result1.error) {
-      console.log('   Intentando con used: false (boolean)...');
-      // Si falla, intentar con false (boolean)
-      const result2 = await supabase
-        .from('password_reset_tokens')
-        .insert({
-          usuario_id: user.id,
-          token: resetToken,
-          expires_at: expiresAt.toISOString(),
-          used: false
-        });
-      
-      insertError = result2.error;
-    } else {
-      insertError = result1.error;
-    }
 
     if (insertError) {
       console.error('❌ Error guardando token de reset:', insertError.message);
@@ -627,7 +603,7 @@ router.post('/resend-unlock-code', otpVerificationLimiter, [
       .from('usuario')
       .select('id')
       .eq('email', email)
-      .eq('estado', 1)
+      .eq('estado', true)
       .limit(1);
 
     if (userError) {
@@ -677,7 +653,7 @@ router.post('/verify-unlock-code', otpVerificationLimiter, [
       .from('usuario')
       .select('id, username')
       .eq('email', email)
-      .eq('estado', 1)
+      .eq('estado', true)
       .limit(1);
 
     if (userError) {

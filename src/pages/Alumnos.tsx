@@ -74,7 +74,7 @@ export default function Alumnos() {
     if (searchType === "cedula") {
       return (alumno.cedula || "").toLowerCase().includes(searchTerm.toLowerCase());
     }
-    return `${alumno.nombre} ${alumno.apellido}`.toLowerCase().includes(searchTerm.toLowerCase());
+    return (alumno.nombre || "").toLowerCase().includes(searchTerm.toLowerCase());
   });
 
   const handleEdit = (alumnoId: string) => {
@@ -170,7 +170,7 @@ export default function Alumnos() {
 
   const handleChangeEstado = async (alumnoId: string, estado: boolean) => {
     try {
-      await apiClient.updateAlumno(alumnoId, { estado: estado ? 1 : 0 });
+      await apiClient.updateAlumno(alumnoId, { estado: Boolean(estado) });
 
       toast({
         title: isEnglish ? "Success" : "Éxito",
@@ -299,7 +299,7 @@ export default function Alumnos() {
                       <TableRow key={alumno.id} className="border-white/10 hover:bg-white/5">
                         <TableCell className="font-mono text-sm text-white">{alumno.cedula || "N/A"}</TableCell>
                         <TableCell className="font-medium text-white">
-                          {alumno.nombre} {alumno.apellido}
+                          {alumno.nombre}
                         </TableCell>
                         <TableCell className="text-purple-300 font-medium">{alumno.categoria_edad_nombre || (isEnglish ? "No category" : "Sin categoría")}</TableCell>
                         <TableCell className="text-indigo-200">{alumno.cinta_nombre ? translateBelt(alumno.cinta_nombre, isEnglish) : "-"}</TableCell>
@@ -384,7 +384,7 @@ export default function Alumnos() {
                       <TableRow key={alumno.id} className="border-white/10 hover:bg-white/5">
                         <TableCell className="font-mono text-sm text-white">{alumno.cedula || "N/A"}</TableCell>
                         <TableCell className="font-medium text-white">
-                          {alumno.nombre} {alumno.apellido}
+                          {alumno.nombre}
                         </TableCell>
                         <TableCell className="text-purple-300 font-medium">{alumno.categoria_edad_nombre || (isEnglish ? "No category" : "Sin categoría")}</TableCell>
                         <TableCell className="text-blue-300 font-medium">{alumno.instructor_nombre || (isEnglish ? "Not assigned" : "Sin asignar")}</TableCell>
@@ -421,97 +421,6 @@ export default function Alumnos() {
           </GlassCard>
         </TabsContent>
       </Tabs>
-
-      <GlassCard style={{display: 'none'}}>
-        <GlassCardHeader>
-          <GlassCardTitle>Lista de Alumnos</GlassCardTitle>
-          <GlassCardDescription className="flex items-center gap-2">
-            <Users className="h-4 w-4" />
-            {filteredAlumnos.length} alumno(s) encontrado(s)
-          </GlassCardDescription>
-        </GlassCardHeader>
-        <GlassCardContent>
-          <Table>
-            <TableHeader>
-              <TableRow className="border-white/20 hover:bg-white/5">
-                <TableHead className="text-indigo-200 font-semibold">Cédula</TableHead>
-                <TableHead className="text-indigo-200 font-semibold">Nombre</TableHead>
-                <TableHead className="text-indigo-200 font-semibold">Categoría</TableHead>
-                <TableHead className="text-indigo-200 font-semibold">Cinta</TableHead>
-                <TableHead className="text-indigo-200 font-semibold">Instructor</TableHead>
-                <TableHead className="text-indigo-200 font-semibold">Estado</TableHead>
-                <TableHead className="text-indigo-200 font-semibold">Acciones</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {loading ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-indigo-300">
-                    Cargando...
-                  </TableCell>
-                </TableRow>
-              ) : filteredAlumnos.length === 0 ? (
-                <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-indigo-300">
-                    No hay alumnos registrados
-                  </TableCell>
-                </TableRow>
-              ) : (
-                filteredAlumnos.map((alumno) => (
-                  <TableRow key={alumno.id} className="border-white/10 hover:bg-white/5">
-                    <TableCell className="font-mono text-sm text-white">{alumno.cedula || "N/A"}</TableCell>
-                    <TableCell className="font-medium text-white">
-                      {alumno.nombre} {alumno.apellido}
-                    </TableCell>
-                    <TableCell className="text-purple-300 font-medium">{alumno.niveles?.nombre || "Sin categoría"}</TableCell>
-                    <TableCell className="text-indigo-200">{alumno.niveles?.color || "-"}</TableCell>
-                    <TableCell className="text-blue-300 font-medium">{alumno.instructor_nombre || "Sin asignar"}</TableCell>
-                    <TableCell>
-                      <Badge 
-                        variant={alumno.estado ? "default" : "secondary"}
-                        className={alumno.estado ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white" : "bg-gray-500"}
-                      >
-                        {alumno.estado ? "Activo" : "Inactivo"}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="ghost" 
-                          size="sm" 
-                          onClick={() => handleDetalle(alumno.id)}
-                          className="hover:bg-white/20 text-white"
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => handleEdit(alumno.id)}
-                          className="border-white/30 bg-white/10 hover:bg-white/20 text-white"
-                        >
-                          <Edit className="h-4 w-4 mr-1" />
-                          Editar
-                        </Button>
-                        {isAdmin && (
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={() => handleDelete(alumno.id)}
-                            className="border-red-400/50 bg-red-500/20 hover:bg-red-500/30 text-red-300"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        )}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </GlassCardContent>
-      </GlassCard>
 
       <Dialog open={editDialogOpen} onOpenChange={setEditDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">

@@ -53,6 +53,7 @@ const createAlumnoSchema = (isEnglish: boolean) => z.object({
     .refine((val) => !val || val.length >= 10, isEnglish ? "Address must have at least 10 characters" : "La dirección debe tener al menos 10 caracteres"),
   categoria_edad_id: z.string().optional(),
   cinta_id: z.string().optional(),
+  sensei_id: z.string().optional(),
   representante_id: z.string().optional(),
   contacto_emergencia: z.string()
     .optional()
@@ -99,6 +100,7 @@ export function AlumnoForm({ onSuccess }: AlumnoFormProps) {
   const [loading, setLoading] = useState(false);
   const [categoriasEdad, setCategoriasEdad] = useState<any[]>([]);
   const [cintas, setCintas] = useState<any[]>([]);
+  const [senseis, setSenseis] = useState<any[]>([]);
   const [representantes, setRepresentantes] = useState<any[]>([]);
   const [categoriasPermitidas, setCategoriasPermitidas] = useState<any[]>([]);
 
@@ -117,6 +119,7 @@ export function AlumnoForm({ onSuccess }: AlumnoFormProps) {
   useEffect(() => {
     fetchCategoriasEdad();
     fetchCintas();
+    fetchSenseis();
     fetchRepresentantes();
   }, []);
 
@@ -143,6 +146,15 @@ export function AlumnoForm({ onSuccess }: AlumnoFormProps) {
       setCintas(cintas || []);
     } catch (error) {
       console.error('Error cargando cintas:', error);
+    }
+  };
+
+  const fetchSenseis = async () => {
+    try {
+      const senseisData = await apiClient.getSenseisDisponibles();
+      setSenseis(senseisData || []);
+    } catch (error) {
+      console.error('Error cargando instructores:', error);
     }
   };
 
@@ -208,6 +220,7 @@ export function AlumnoForm({ onSuccess }: AlumnoFormProps) {
         direccion: data.direccion || null,
         id_categoria_edad: data.categoria_edad_id ? parseInt(data.categoria_edad_id) : null,
         id_cinta: data.cinta_id ? parseInt(data.cinta_id) : null,
+        sensei_id: data.sensei_id && data.sensei_id !== "none" ? parseInt(data.sensei_id) : null,
         id_representante: esMayorEdad ? null : (data.representante_id ? parseInt(data.representante_id) : null),
         contacto_emergencia: data.contacto_emergencia || null,
         telefono_emergencia: data.telefono_emergencia || null,
@@ -477,6 +490,26 @@ export function AlumnoForm({ onSuccess }: AlumnoFormProps) {
         </div>
       </div>
 
+      <div className="space-y-2">
+        <Label htmlFor="sensei_id">{isEnglish ? "Assigned Instructor (Sensei)" : "Instructor Asignado (Sensei)"}</Label>
+        <Select
+          onValueChange={(value) => setValue("sensei_id", value)}
+          value={watch("sensei_id") || "none"}
+        >
+          <SelectTrigger>
+            <SelectValue placeholder={isEnglish ? "Select instructor" : "Seleccionar instructor"} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">{isEnglish ? "Unassigned" : "Sin asignar"}</SelectItem>
+            {senseis.map((sensei) => (
+              <SelectItem key={sensei.id} value={String(sensei.id)}>
+                {sensei.nombre_completo}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
       {/* Representante - Solo mostrar si es menor de edad */}
       {fechaNacimiento && calcularEdad(fechaNacimiento) < 18 && (
         <div className="space-y-2">
@@ -491,7 +524,7 @@ export function AlumnoForm({ onSuccess }: AlumnoFormProps) {
             <SelectContent>
               {representantes.map((rep) => (
                 <SelectItem key={rep.id} value={String(rep.id)}>
-                  {rep.nombre} {rep.apellido}
+                  {[rep.nombre, rep.apellido].filter(Boolean).join(" ")} ({rep.cedula})
                 </SelectItem>
               ))}
             </SelectContent>
