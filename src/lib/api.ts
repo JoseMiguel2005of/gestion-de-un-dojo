@@ -480,6 +480,28 @@ class ApiClient {
     });
   }
 
+  async calificarEvaluacion(
+    evaluacionId: string | number,
+    payload: {
+      calificaciones: Array<{ id_alumno: number; aprobado: boolean | null; notas?: string | null }>;
+      completar_evaluacion?: boolean;
+    }
+  ) {
+    return this.request<{ message: string; calificados: number; promovidos: number; estado: string }>(
+      `/evaluaciones/${evaluacionId}/calificar`,
+      {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      }
+    );
+  }
+
+  async getEstadisticasPromociones() {
+    return this.request<{ totalPromociones: number; promocionesRecientes: any[] }>(
+      '/evaluaciones/estadisticas/promociones'
+    );
+  }
+
   async generarResultadosAleatorios() {
     return this.request<any>('/evaluaciones/generar-resultados-aleatorios', {
       method: 'POST',
@@ -709,6 +731,56 @@ class ApiClient {
     return this.request<any>(`/horarios/festivos/${id}`, {
       method: 'DELETE',
     });
+  }
+
+  // Métodos para asistencias
+  async getSesionAsistencia(fecha: string, idHorario: number | string) {
+    const qs = new URLSearchParams({
+      fecha,
+      id_horario: String(idHorario),
+    }).toString();
+    return this.request<{
+      fecha: string;
+      es_dia_festivo: boolean;
+      festivo_descripcion: string | null;
+      horario: any;
+      alumnos: any[];
+    }>(`/asistencias/sesion?${qs}`);
+  }
+
+  async registrarAsistenciaLote(payload: {
+    fecha: string;
+    id_horario: number;
+    registros: Array<{ id_alumno: number; estado: string; observaciones?: string | null }>;
+  }) {
+    return this.request<{ message: string; total_guardados: number }>('/asistencias/registrar-lote', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getResumenAsistencia(params?: { id_alumno?: number; mes?: number; anio?: number }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          cleanParams[k] = String(v);
+        }
+      });
+    }
+    const qs = Object.keys(cleanParams).length > 0 ? `?${new URLSearchParams(cleanParams).toString()}` : '';
+    return this.request<{
+      estadisticas: {
+        total: number;
+        presentes: number;
+        tardanzas: number;
+        justificados: number;
+        ausentes: number;
+        porcentajeAsistencia: number;
+      };
+      porAlumno: any[];
+      historialReciente: any[];
+    }>(`/asistencias/resumen${qs}`);
   }
 
   // Métodos para senseis

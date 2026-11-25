@@ -42,6 +42,7 @@ export const ROUTE_PERMISSIONS: Record<string, UserRole[]> = {
   '/niveles': STAFF_ROLES,
   '/representantes': STAFF_ROLES,
   '/horarios': ALL_AUTHENTICATED_ROLES,
+  '/asistencias': ALL_AUTHENTICATED_ROLES,
   '/evaluaciones': [...ACADEMIC_ROLES, 'usuario'],
   '/pagos': ALL_AUTHENTICATED_ROLES,
   '/reportes': REPORT_ROLES,

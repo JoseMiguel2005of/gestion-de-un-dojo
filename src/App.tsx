@@ -14,6 +14,7 @@ import Alumnos from "./pages/Alumnos";
 import Niveles from "./pages/Niveles";
 import Representantes from "./pages/Representantes";
 import Horarios from "./pages/Horarios";
+import Asistencias from "./pages/Asistencias";
 import Pagos from "./pages/Pagos";
 import Evaluaciones from "./pages/Evaluaciones";
 import Reportes from "./pages/Reportes";
@@ -78,6 +79,14 @@ const AppContent = () => {
                 element={
                   <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/horarios"]}>
                     <Horarios />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/asistencias"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/asistencias"]}>
+                    <Asistencias />
                   </RoleGuard>
                 }
               />

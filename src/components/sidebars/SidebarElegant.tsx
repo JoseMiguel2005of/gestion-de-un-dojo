@@ -1,4 +1,4 @@
-import { Home, Users, Award, UserCircle, FileText, BarChart3, Settings, Sliders, DollarSign, Clock } from "lucide-react";
+import { Home, Users, Award, UserCircle, FileText, BarChart3, Settings, Sliders, DollarSign, Clock, CalendarCheck } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import {
   Sidebar,
@@ -31,6 +31,7 @@ const getMenuSections = (isEnglish: boolean) => [
       { title: isEnglish ? "Categories" : "Categorías", url: "/niveles", icon: Award },
       { title: isEnglish ? "Representatives" : "Representantes", url: "/representantes", icon: UserCircle },
       { title: isEnglish ? "Schedules" : "Horarios", url: "/horarios", icon: Clock },
+      { title: isEnglish ? "Attendance" : "Asistencias", url: "/asistencias", icon: CalendarCheck },
     ]
   },
   {

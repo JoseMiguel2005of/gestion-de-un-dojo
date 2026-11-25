@@ -15,6 +15,7 @@ import configuracionRoutes from './routes/configuracion.js';
 import usuariosRoutes from './routes/usuarios.js';
 import pagosRoutes from './routes/pagos.js';
 import horariosRoutes from './routes/horarios.js';
+import asistenciasRoutes from './routes/asistencias.js';
 import backupRoutes from './routes/backup.js';
 
 const app = express();
@@ -79,6 +80,7 @@ app.use('/api/configuracion', configuracionRoutes);
 app.use('/api/usuarios', usuariosRoutes);
 app.use('/api/pagos', pagosRoutes);
 app.use('/api/horarios', horariosRoutes);
+app.use('/api/asistencias', asistenciasRoutes);
 app.use('/api/backup', backupRoutes);
 
 // Ruta de salud

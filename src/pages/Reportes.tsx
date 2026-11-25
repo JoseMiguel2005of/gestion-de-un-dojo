@@ -17,6 +17,7 @@ export default function Reportes() {
     totalNiveles: 0,
     totalRepresentantes: 0,
     totalEvaluaciones: 0,
+    totalPromociones: 0,
   });
   const [alumnosPorNivel, setAlumnosPorNivel] = useState<any[]>([]);
   const [evaluacionesRecientes, setEvaluacionesRecientes] = useState<any[]>([]);
@@ -34,11 +35,12 @@ export default function Reportes() {
 
   const fetchStats = async () => {
     try {
-      const [alumnos, niveles, evaluaciones, representantes] = await Promise.all([
+      const [alumnos, niveles, evaluaciones, representantes, promocionesStats] = await Promise.all([
         apiClient.getAlumnos(),
         apiClient.getCategoriasEdad(),
         apiClient.getEvaluaciones(),
         apiClient.getRepresentantes(),
+        apiClient.getEstadisticasPromociones().catch(() => ({ totalPromociones: 0, promocionesRecientes: [] })),
       ]);
 
       const alumnosActivos = alumnos.filter(alumno => Boolean(alumno.estado));
@@ -49,6 +51,7 @@ export default function Reportes() {
         totalNiveles: niveles.length || 0,
         totalRepresentantes: representantes.length || 0,
         totalEvaluaciones: evaluaciones.length || 0,
+        totalPromociones: promocionesStats?.totalPromociones || 0,
       });
     } catch (error) {
       console.error('Error cargando estadísticas:', error);
@@ -203,7 +206,7 @@ export default function Reportes() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold text-blue-700 dark:text-blue-400">-</div>
+            <div className="text-3xl font-bold text-blue-700 dark:text-blue-400">{stats.totalPromociones}</div>
           </CardContent>
         </Card>
       </div>
