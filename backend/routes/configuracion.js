@@ -1,6 +1,7 @@
 import express from 'express';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { ADMIN_ONLY } from '../config/permissions.js';
 import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
@@ -63,8 +64,8 @@ router.get('/:clave', async (req, res) => {
   }
 });
 
-// Actualizar o crear configuración (requiere autenticación)
-router.put('/', authenticateToken, [
+// Actualizar o crear configuración (solo administradores)
+router.put('/', authenticateToken, requireRole(ADMIN_ONLY), [
   body('configuraciones').isObject().withMessage('Se requiere un objeto de configuraciones')
 ], async (req, res) => {
   try {
@@ -116,8 +117,8 @@ router.put('/', authenticateToken, [
   }
 });
 
-// Actualizar una configuración específica
-router.put('/:clave', authenticateToken, [
+// Actualizar una configuración específica (solo administradores)
+router.put('/:clave', authenticateToken, requireRole(ADMIN_ONLY), [
   body('valor').notEmpty().withMessage('El valor es requerido')
 ], async (req, res) => {
   try {
@@ -170,8 +171,8 @@ router.put('/:clave', authenticateToken, [
   }
 });
 
-// Restaurar configuraciones por defecto
-router.post('/reset', authenticateToken, async (req, res) => {
+// Restaurar configuraciones por defecto (solo administradores)
+router.post('/reset', authenticateToken, requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     // Valores por defecto
     const defaults = {

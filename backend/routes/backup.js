@@ -1,6 +1,7 @@
 import express from 'express';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { ADMIN_ONLY } from '../config/permissions.js';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
@@ -9,7 +10,7 @@ import fs from 'fs';
 const execPromise = promisify(exec);
 const router = express.Router();
 
-router.use(authenticateToken);
+router.use(authenticateToken, requireRole(ADMIN_ONLY));
 
 // Exportar datos en formato JSON
 router.get('/export/json', async (req, res) => {

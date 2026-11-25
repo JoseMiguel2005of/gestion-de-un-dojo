@@ -1,6 +1,7 @@
 import express from 'express';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { ACADEMIC_ROLES, ADMIN_ONLY, ROLES } from '../config/permissions.js';
 import { body, validationResult } from 'express-validator';
 import { registrarLog, LogActions, LogModules } from '../utils/logger.js';
 
@@ -23,15 +24,18 @@ const determinarCategoriaExamen = (nombre) => {
 };
 
 // Obtener todas las evaluaciones
-router.get('/', async (req, res) => {
+router.get('/', requireRole([...ACADEMIC_ROLES, ROLES.USUARIO]), async (req, res) => {
   try {
     // Verificar si el usuario es un usuario normal (solo debe ver sus evaluaciones)
-    const userRole = req.user?.rol || 'usuario';
+    const userRole = req.user?.rol || ROLES.USUARIO;
     const userId = req.user?.id;
     
     let evaluacionesIds = [];
 
-    if (userRole === 'usuario' && userId) {
+    if (userRole === ROLES.USUARIO) {
+      if (!userId) {
+        return res.status(403).json({ error: 'Acceso denegado', code: 'FORBIDDEN_RESOURCE' });
+      }
       // Usuarios normales ven evaluaciones donde están inscritos como alumnos
       // Primero obtener los IDs de alumnos del usuario
       const { data: alumnos, error: alumnosError } = await supabase
@@ -142,7 +146,7 @@ router.get('/', async (req, res) => {
 });
 
 // Obtener una evaluación por ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', requireRole([...ACADEMIC_ROLES, ROLES.USUARIO]), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -156,6 +160,35 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Evaluación no encontrada' });
     }
 
+    if (req.user.rol === ROLES.USUARIO) {
+      const { data: misAlumnos } = await supabase
+        .from('alumno')
+        .select('id')
+        .eq('usuario_id', req.user.id);
+
+      const misAlumnosIds = (misAlumnos || []).map(a => a.id);
+      if (misAlumnosIds.length === 0) {
+        return res.status(403).json({
+          error: 'Acceso denegado a esta evaluación',
+          code: 'FORBIDDEN_RESOURCE'
+        });
+      }
+
+      const { data: inscripcion } = await supabase
+        .from('alumnoevaluacion')
+        .select('id')
+        .eq('id_evaluacion', id)
+        .in('id_alumno', misAlumnosIds)
+        .limit(1);
+
+      if (!inscripcion || inscripcion.length === 0) {
+        return res.status(403).json({
+          error: 'Acceso denegado: no estás inscrito en esta evaluación',
+          code: 'FORBIDDEN_RESOURCE'
+        });
+      }
+    }
+
     res.json(evaluacion);
   } catch (error) {
     console.error('Error obteniendo evaluación:', error);
@@ -164,7 +197,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Crear nueva evaluación
-router.post('/', [
+router.post('/', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre es requerido'),
   body('fecha').notEmpty().withMessage('Fecha es requerida'),
   body('hora').notEmpty().withMessage('Hora es requerida')
@@ -314,7 +347,7 @@ router.post('/', [
 });
 
 // Actualizar evaluación
-router.put('/:id', [
+router.put('/:id', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre es requerido'),
   body('fecha').notEmpty().withMessage('Fecha es requerida')
 ], async (req, res) => {
@@ -349,7 +382,7 @@ router.put('/:id', [
 });
 
 // Eliminar evaluación
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -411,9 +444,25 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Obtener resultados de evaluación
-router.get('/:id/resultados', async (req, res) => {
+router.get('/:id/resultados', requireRole([...ACADEMIC_ROLES, ROLES.USUARIO]), async (req, res) => {
   try {
     const { id } = req.params;
+    let misAlumnosIds = null;
+
+    if (req.user.rol === ROLES.USUARIO) {
+      const { data: misAlumnos } = await supabase
+        .from('alumno')
+        .select('id')
+        .eq('usuario_id', req.user.id);
+
+      misAlumnosIds = (misAlumnos || []).map(a => a.id);
+      if (misAlumnosIds.length === 0) {
+        return res.status(403).json({
+          error: 'Acceso denegado a los resultados de esta evaluación',
+          code: 'FORBIDDEN_RESOURCE'
+        });
+      }
+    }
     
     // Primero obtener la fecha de la evaluación
     const { data: evaluacion, error: evalError } = await supabase
@@ -429,7 +478,7 @@ router.get('/:id/resultados', async (req, res) => {
     const fechaEvaluacion = evaluacion.fecha;
     
     // Obtener relaciones alumno-evaluación
-    const { data: alumnoEvaluaciones, error: aeError } = await supabase
+    let aeQuery = supabase
       .from('alumnoevaluacion')
       .select(`
         id,
@@ -445,9 +494,22 @@ router.get('/:id/resultados', async (req, res) => {
       `)
       .eq('id_evaluacion', id);
 
+    if (misAlumnosIds) {
+      aeQuery = aeQuery.in('id_alumno', misAlumnosIds);
+    }
+
+    const { data: alumnoEvaluaciones, error: aeError } = await aeQuery;
+
     if (aeError) {
       console.error('Error obteniendo resultados:', aeError);
       return res.status(500).json({ error: 'Error interno del servidor', details: aeError.message });
+    }
+
+    if (misAlumnosIds && (!alumnoEvaluaciones || alumnoEvaluaciones.length === 0)) {
+      return res.status(403).json({
+        error: 'Acceso denegado: no estás inscrito en esta evaluación',
+        code: 'FORBIDDEN_RESOURCE'
+      });
     }
 
     // Filtrar y formatear resultados
@@ -486,7 +548,7 @@ router.get('/:id/resultados', async (req, res) => {
 });
 
 // Crear resultado de evaluación
-router.post('/:id/resultados', [
+router.post('/:id/resultados', requireRole(ACADEMIC_ROLES), [
   body('id_alumno').notEmpty().withMessage('ID del alumno es requerido')
 ], async (req, res) => {
   try {
@@ -524,7 +586,7 @@ router.post('/:id/resultados', [
 });
 
 // Generar resultados aleatorios para evaluaciones
-router.post('/generar-resultados-aleatorios', async (req, res) => {
+router.post('/generar-resultados-aleatorios', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     // Obtener todas las evaluaciones
     const { data: evaluaciones, error: evalError } = await supabase

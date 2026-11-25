@@ -52,9 +52,11 @@ export default function Configuracion() {
 
   useEffect(() => {
     loadConfiguration();
-    checkConnection();
+    if (isAdmin) {
+      checkConnection();
+    }
     loadLanguagePreferences();
-  }, []);
+  }, [isAdmin]);
   
   const loadLanguagePreferences = async () => {
     try {
@@ -138,45 +140,49 @@ export default function Configuracion() {
   const handleSave = async () => {
     setLoading(true);
     try {
-      // Guardar configuración general
-      await apiClient.updateConfiguracion(config);
-      
-      // Guardar tema de sidebar en localStorage para cambio inmediato
+      // Solo un administrador puede modificar la configuración global del dojo
+      if (isAdmin) {
+        await apiClient.updateConfiguracion(config);
+      }
+
+      // Guardar preferencias visuales locales en localStorage para cambio inmediato
       localStorage.setItem('sidebar_theme', config.tema_sidebar);
-      
+      localStorage.setItem('theme_mode', config.tema_modo);
+
       // Disparar evento para cambiar sidebar inmediatamente
       window.dispatchEvent(new CustomEvent('sidebar-theme-change', { detail: config.tema_sidebar }));
-      
+
       // Guardar idioma en la base de datos
       if (userLanguage) {
         if (isAdmin && applyLanguageGlobally) {
-          // Admin aplicando idioma globalmente a TODOS los usuarios
           await apiClient.cambiarIdiomaGlobal(userLanguage);
         } else {
-          // Usuario normal o admin solo para su cuenta
           await apiClient.cambiarIdioma(userLanguage);
         }
-        // Disparar evento de cambio de idioma con el nuevo idioma para actualización inmediata
-        // Usar setTimeout para asegurar que el evento se dispare después de que se guarde en la BD
         setTimeout(() => {
           window.dispatchEvent(new CustomEvent('language-change', { 
             detail: { idioma_preferido: userLanguage } 
           }));
-          console.log('🌐 Evento language-change disparado con idioma:', userLanguage);
         }, 100);
       }
-      
+
       toast({
         title: isEnglish ? "Configuration saved!" : "¡Configuración guardada!",
         description: isEnglish ? "Changes have been applied successfully" : "Los cambios se han aplicado correctamente",
       });
-      
-      // Aplicar el tema directamente sin recargar la página
-      // Esto evita que se pierda la sesión
+
       const temaCambio = previousThemeRef.current !== config.tema_modo;
       if (temaCambio) {
-        // Recargar el tema desde la configuración guardada
-        await loadTheme();
+        if (isAdmin) {
+          await loadTheme();
+        } else {
+          const root = document.documentElement;
+          if (config.tema_modo === 'dark') {
+            root.classList.add('dark');
+          } else {
+            root.classList.remove('dark');
+          }
+        }
         previousThemeRef.current = config.tema_modo;
       }
     } catch (error: any) {
@@ -191,6 +197,7 @@ export default function Configuracion() {
   };
 
   const handleReset = async () => {
+    if (!isAdmin) return;
     if (!confirm(isEnglish ? 'Are you sure you want to restore default settings?' : '¿Estás seguro de restaurar las configuraciones por defecto?')) return;
     
     setLoading(true);
@@ -292,22 +299,24 @@ export default function Configuracion() {
           <p className="text-gray-600 dark:text-gray-300 mt-1">{isEnglish ? "Customize your dojo and system appearance" : "Personaliza tu dojo y la apariencia del sistema"}</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
-            onClick={handleReset}
-            disabled={loading}
-            className="gap-2"
-          >
-            <RotateCcw className="h-4 w-4" />
-{isEnglish ? "Restore" : "Restaurar"}
-          </Button>
+          {isAdmin && (
+            <Button 
+              variant="outline" 
+              onClick={handleReset}
+              disabled={loading}
+              className="gap-2"
+            >
+              <RotateCcw className="h-4 w-4" />
+              {isEnglish ? "Restore" : "Restaurar"}
+            </Button>
+          )}
           <Button 
             onClick={handleSave}
             disabled={loading}
             className="gap-2 bg-orange-600 hover:bg-orange-700"
           >
             <Save className="h-4 w-4" />
-{loading ? (isEnglish ? "Saving..." : "Guardando...") : (isEnglish ? "Save Changes" : "Guardar Cambios")}
+            {loading ? (isEnglish ? "Saving..." : "Guardando...") : (isEnglish ? "Save Changes" : "Guardar Cambios")}
           </Button>
         </div>
       </div>

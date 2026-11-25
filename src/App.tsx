@@ -6,7 +6,8 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthContext, useAuthState } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
 import { Layout } from "./components/Layout";
-import Index from "./pages/Index";
+import { RoleGuard } from "./components/RoleGuard";
+import { ROUTE_PERMISSIONS } from "./config/permissions";
 import Dashboard from "./pages/Dashboard";
 import Alumnos from "./pages/Alumnos";
 import Niveles from "./pages/Niveles";
@@ -38,16 +39,86 @@ const AppContent = () => {
             <Route path="/unlock-account" element={<UnlockAccount />} />
             <Route path="/verify-email" element={<VerifyEmail />} />
             <Route element={<Layout />}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/alumnos" element={<Alumnos />} />
-              <Route path="/niveles" element={<Niveles />} />
-              <Route path="/representantes" element={<Representantes />} />
-              <Route path="/horarios" element={<Horarios />} />
-              <Route path="/pagos" element={<Pagos />} />
-              <Route path="/evaluaciones" element={<Evaluaciones />} />
-              <Route path="/reportes" element={<Reportes />} />
-              <Route path="/configuracion" element={<Configuracion />} />
-              <Route path="/configuracion-avanzada" element={<ConfiguracionAvanzada />} />
+              <Route
+                path="/"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/"]}>
+                    <Dashboard />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/alumnos"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/alumnos"]}>
+                    <Alumnos />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/niveles"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/niveles"]}>
+                    <Niveles />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/representantes"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/representantes"]}>
+                    <Representantes />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/horarios"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/horarios"]}>
+                    <Horarios />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/pagos"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/pagos"]}>
+                    <Pagos />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/evaluaciones"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/evaluaciones"]}>
+                    <Evaluaciones />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/reportes"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/reportes"]}>
+                    <Reportes />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/configuracion"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/configuracion"]}>
+                    <Configuracion />
+                  </RoleGuard>
+                }
+              />
+              <Route
+                path="/configuracion-avanzada"
+                element={
+                  <RoleGuard allowedRoles={ROUTE_PERMISSIONS["/configuracion-avanzada"]}>
+                    <ConfiguracionAvanzada />
+                  </RoleGuard>
+                }
+              />
             </Route>
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />

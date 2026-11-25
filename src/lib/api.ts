@@ -1,6 +1,30 @@
 // Cliente API para reemplazar Supabase
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
 
+const PUBLIC_AUTH_PREFIXES = [
+  '/auth/login',
+  '/auth/register',
+  '/auth/forgot-password',
+  '/auth/reset-password',
+  '/auth/verify-email',
+  '/auth/verify-unlock-code',
+  '/auth/resend-unlock-code',
+  '/auth/resend-verification-code',
+];
+
+let lastSessionExpiredAt = 0;
+
+function notifySessionExpired(endpoint: string, code?: string) {
+  const now = Date.now();
+  if (now - lastSessionExpiredAt < 2000) return;
+  lastSessionExpiredAt = now;
+  window.dispatchEvent(
+    new CustomEvent('auth:session-expired', {
+      detail: { endpoint, code },
+    })
+  );
+}
+
 // Interfaz para las respuestas de la API
 interface ApiResponse<T> {
   data?: T;
@@ -42,9 +66,10 @@ class ApiClient {
       this.token = currentToken;
     }
     
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-    };
+    const headers: Record<string, string> = {};
+    if (!(options.body instanceof FormData)) {
+      headers['Content-Type'] = 'application/json';
+    }
 
     // Agregar headers personalizados
     if (options.headers) {
@@ -59,6 +84,10 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${tokenToUse}`;
     }
 
+    const isPublicAuthEndpoint = PUBLIC_AUTH_PREFIXES.some((prefix) =>
+      endpoint.startsWith(prefix)
+    );
+
     try {
       const response = await fetch(url, {
         ...options,
@@ -67,18 +96,20 @@ class ApiClient {
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        console.error('❌ ERROR EN PETICIÓN:', {
-          method: options.method || 'GET',
-          endpoint: endpoint,
-          status: response.status,
-          statusText: response.statusText,
-          errorData: errorData,
-          message: errorData.message,
-          sqlMessage: errorData.sqlMessage,
-          sql: errorData.sql,
-          details: errorData.details
-        });
-        console.error('📋 Datos completos del error:', JSON.stringify(errorData, null, 2));
+
+        const isInvalidSession =
+          !isPublicAuthEndpoint &&
+          (response.status === 401 ||
+            errorData?.code === 'TOKEN_INVALID' ||
+            errorData?.code === 'TOKEN_REQUIRED');
+
+        if (isInvalidSession) {
+          this.setToken(null);
+          if (!endpoint.startsWith('/auth/verify')) {
+            notifySessionExpired(endpoint, errorData?.code);
+          }
+        }
+
         const error = new Error(errorData.error || errorData.message || errorData.sqlMessage || `HTTP ${response.status}`) as any;
         error.status = response.status;
         error.data = errorData;
@@ -656,12 +687,21 @@ class ApiClient {
   async exportarJSON() {
     const url = `${this.baseURL}/backup/export/json`;
     const headers: Record<string, string> = {};
-    
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    const tokenToUse = localStorage.getItem('auth_token') || this.token;
+
+    if (tokenToUse) {
+      headers['Authorization'] = `Bearer ${tokenToUse}`;
     }
 
     const response = await fetch(url, { headers });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401 || errorData?.code === 'TOKEN_INVALID' || errorData?.code === 'TOKEN_REQUIRED') {
+        this.setToken(null);
+        notifySessionExpired('/backup/export/json', errorData?.code);
+      }
+      throw new Error(errorData.error || errorData.message || `HTTP ${response.status}`);
+    }
     const blob = await response.blob();
     const downloadUrl = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -670,17 +710,27 @@ class ApiClient {
     document.body.appendChild(link);
     link.click();
     link.remove();
+    window.URL.revokeObjectURL(downloadUrl);
   }
 
   async exportarSQL() {
     const url = `${this.baseURL}/backup/export/sql`;
     const headers: Record<string, string> = {};
-    
-    if (this.token) {
-      headers['Authorization'] = `Bearer ${this.token}`;
+    const tokenToUse = localStorage.getItem('auth_token') || this.token;
+
+    if (tokenToUse) {
+      headers['Authorization'] = `Bearer ${tokenToUse}`;
     }
 
     const response = await fetch(url, { headers });
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      if (response.status === 401 || errorData?.code === 'TOKEN_INVALID' || errorData?.code === 'TOKEN_REQUIRED') {
+        this.setToken(null);
+        notifySessionExpired('/backup/export/sql', errorData?.code);
+      }
+      throw new Error(errorData.error || errorData.message || `HTTP ${response.status}`);
+    }
     const blob = await response.blob();
     const downloadUrl = window.URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -689,6 +739,7 @@ class ApiClient {
     document.body.appendChild(link);
     link.click();
     link.remove();
+    window.URL.revokeObjectURL(downloadUrl);
   }
 
   async importarJSON(archivo: File) {

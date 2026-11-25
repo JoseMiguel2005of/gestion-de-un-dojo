@@ -1,6 +1,7 @@
 import express from 'express';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { ACADEMIC_ROLES, ADMIN_ONLY } from '../config/permissions.js';
 import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
@@ -135,7 +136,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Crear nueva categoría de edad
-router.post('/categorias-edad', [
+router.post('/categorias-edad', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre de la categoría es requerido'),
   body('edad_min').isInt({ min: 0 }).withMessage('Edad mínima debe ser un número válido'),
   body('edad_max').isInt({ min: 0 }).withMessage('Edad máxima debe ser un número válido')
@@ -176,7 +177,7 @@ router.post('/categorias-edad', [
 });
 
 // Crear nueva cinta
-router.post('/cintas', [
+router.post('/cintas', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre de la cinta es requerido')
 ], async (req, res) => {
   try {
@@ -216,7 +217,7 @@ router.post('/cintas', [
 });
 
 // Crear nuevo nivel (crea en categorias_old_backup)
-router.post('/', [
+router.post('/', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre del nivel es requerido')
 ], async (req, res) => {
   try {
@@ -257,7 +258,7 @@ router.post('/', [
 });
 
 // Actualizar categoría de edad
-router.put('/categorias-edad/:id', [
+router.put('/categorias-edad/:id', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre de la categoría es requerido'),
   body('edad_min').isInt({ min: 0 }).withMessage('Edad mínima debe ser un número válido'),
   body('edad_max').isInt({ min: 0 }).withMessage('Edad máxima debe ser un número válido')
@@ -295,7 +296,7 @@ router.put('/categorias-edad/:id', [
 });
 
 // Actualizar cinta
-router.put('/cintas/:id', [
+router.put('/cintas/:id', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre de la cinta es requerido')
 ], async (req, res) => {
   try {
@@ -332,7 +333,7 @@ router.put('/cintas/:id', [
 });
 
 // Actualizar nivel (en categorias_old_backup)
-router.put('/:id', [
+router.put('/:id', requireRole(ACADEMIC_ROLES), [
   body('nombre').notEmpty().withMessage('Nombre del nivel es requerido')
 ], async (req, res) => {
   try {
@@ -366,7 +367,7 @@ router.put('/:id', [
 });
 
 // Eliminar categoría de edad
-router.delete('/categorias-edad/:id', async (req, res) => {
+router.delete('/categorias-edad/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -405,7 +406,7 @@ router.delete('/categorias-edad/:id', async (req, res) => {
 });
 
 // Eliminar cinta
-router.delete('/cintas/:id', async (req, res) => {
+router.delete('/cintas/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -444,7 +445,7 @@ router.delete('/cintas/:id', async (req, res) => {
 });
 
 // Eliminar nivel (de categorias_old_backup)
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { STAFF_ROLES, ACADEMIC_ROLES, ADMIN_ONLY, ROLES } from '../config/permissions.js';
 import { body, validationResult } from 'express-validator';
 import { registrarLog, LogActions, LogModules } from '../utils/logger.js';
 
@@ -88,8 +89,11 @@ router.get('/', async (req, res) => {
       `)
       .order('nombre', { ascending: true });
 
-    // Filtrar por usuario si es necesario
-    if (userRole === 'usuario' && userId) {
+    // Filtrar estrictamente por propietario cuando el rol es usuario
+    if (userRole === ROLES.USUARIO) {
+      if (!userId) {
+        return res.status(403).json({ error: 'Acceso denegado', code: 'FORBIDDEN_RESOURCE' });
+      }
       alumnosQuery = alumnosQuery.eq('usuario_id', userId);
     }
 
@@ -204,6 +208,13 @@ router.get('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Alumno no encontrado' });
     }
 
+    if (req.user.rol === ROLES.USUARIO && String(alumno.usuario_id) !== String(req.user.id)) {
+      return res.status(403).json({
+        error: 'Acceso denegado: no puedes consultar datos de otro alumno',
+        code: 'FORBIDDEN_RESOURCE'
+      });
+    }
+
     // Obtener representantes
     const { data: representantesData, error: repError } = await supabase
       .from('alumnorepresentante')
@@ -302,6 +313,22 @@ router.post('/', [
       direcciones 
     } = req.body;
 
+    let effectiveUsuarioId = usuario_id || null;
+    if (req.user.rol === ROLES.USUARIO) {
+      effectiveUsuarioId = req.user.id;
+      const { data: existingUserAlumno } = await supabase
+        .from('alumno')
+        .select('id')
+        .eq('usuario_id', req.user.id)
+        .limit(1);
+
+      if (existingUserAlumno && existingUserAlumno.length > 0) {
+        return res.status(400).json({
+          error: 'Tu cuenta ya tiene una inscripción de alumno registrada'
+        });
+      }
+    }
+
     const { data: existingAlumnos, error: existingError } = await supabase
       .from('alumno')
       .select('id')
@@ -338,7 +365,7 @@ router.post('/', [
       telefono_padre: telefono_padre || null,
       nombre_madre: nombre_madre || null,
       telefono_madre: telefono_madre || null,
-      usuario_id: usuario_id || null,
+      usuario_id: effectiveUsuarioId,
       tiempo_preparacion_meses: tiempoPreparacion,
       proximo_examen_fecha: proximoExamenFecha.toISOString(),
       fecha_inscripcion: fechaInscripcion.toISOString()
@@ -522,7 +549,7 @@ router.post('/', [
   }
 });
 
-router.put('/:id', [
+router.put('/:id', requireRole(STAFF_ROLES), [
   body('cedula').notEmpty().withMessage('Cédula es requerida'),
   body('nombre').notEmpty().withMessage('Nombre es requerido')
 ], async (req, res) => {
@@ -611,7 +638,7 @@ router.put('/:id', [
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -624,6 +651,13 @@ router.delete('/:id', async (req, res) => {
 
     if (alumnoError || !alumno) {
       return res.status(404).json({ error: 'Alumno no encontrado' });
+    }
+
+    if (req.user.rol === ROLES.USUARIO && String(alumno.usuario_id) !== String(req.user.id)) {
+      return res.status(403).json({
+        error: 'Acceso denegado: no puedes consultar datos de otro alumno',
+        code: 'FORBIDDEN_RESOURCE'
+      });
     }
 
     // Eliminar el usuario asociado si existe
@@ -656,7 +690,7 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
-router.get('/eliminados/listar', async (req, res) => {
+router.get('/eliminados/listar', requireRole(STAFF_ROLES), async (req, res) => {
   try {
     // Obtener alumnos eliminados con sus relaciones básicas
     const { data: alumnos, error: alumnosError } = await supabase
@@ -750,7 +784,7 @@ router.get('/eliminados/listar', async (req, res) => {
 });
 
 
-router.patch('/:id/restaurar', async (req, res) => {
+router.patch('/:id/restaurar', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -771,7 +805,7 @@ router.patch('/:id/restaurar', async (req, res) => {
 });
 
 // Ruta para eliminar permanentemente un alumno
-router.delete('/:id/permanente', async (req, res) => {
+router.delete('/:id/permanente', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -784,6 +818,13 @@ router.delete('/:id/permanente', async (req, res) => {
 
     if (alumnoError || !alumno) {
       return res.status(404).json({ error: 'Alumno no encontrado' });
+    }
+
+    if (req.user.rol === ROLES.USUARIO && String(alumno.usuario_id) !== String(req.user.id)) {
+      return res.status(403).json({
+        error: 'Acceso denegado: no puedes consultar datos de otro alumno',
+        code: 'FORBIDDEN_RESOURCE'
+      });
     }
 
     if (alumno.estado === true) {
@@ -839,7 +880,7 @@ router.delete('/:id/permanente', async (req, res) => {
 });
 
 
-router.get('/senseis/disponibles', async (req, res) => {
+router.get('/senseis/disponibles', requireRole(STAFF_ROLES), async (req, res) => {
   try {
     const { data: senseis, error: senseisError } = await supabase
       .from('usuario')
@@ -860,7 +901,7 @@ router.get('/senseis/disponibles', async (req, res) => {
 });
 
 
-router.put('/:id/sensei', [
+router.put('/:id/sensei', requireRole(ACADEMIC_ROLES), [
   body('sensei_id').isInt().withMessage('ID del sensei debe ser un número válido')
 ], async (req, res) => {
   try {

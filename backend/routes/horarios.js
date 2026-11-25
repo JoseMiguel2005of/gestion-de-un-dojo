@@ -1,7 +1,8 @@
 import express from 'express';
 import { body, validationResult } from 'express-validator';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { MANAGEMENT_ROLES } from '../config/permissions.js';
 
 const router = express.Router();
 router.use(authenticateToken);
@@ -161,7 +162,7 @@ router.get('/', async (req, res) => {
 });
 
 // Crear horario
-router.post('/', async (req, res) => {
+router.post('/', requireRole(MANAGEMENT_ROLES), async (req, res) => {
   try {
     const { dia_semana, hora_inicio, hora_fin, id_categoria_edad, capacidad_maxima, instructor_id } = req.body;
 
@@ -206,7 +207,7 @@ router.post('/', async (req, res) => {
 });
 
 // Actualizar horario
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole(MANAGEMENT_ROLES), async (req, res) => {
   try {
     const { id } = req.params;
     const { dia_semana, hora_inicio, hora_fin, id_categoria_edad, capacidad_maxima, instructor_id, activo } = req.body;
@@ -257,7 +258,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Eliminar horario
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole(MANAGEMENT_ROLES), async (req, res) => {
   try {
     const { id } = req.params;
     
@@ -299,7 +300,7 @@ router.get('/festivos', async (req, res) => {
 });
 
 // Agregar día festivo
-router.post('/festivos', [
+router.post('/festivos', requireRole(MANAGEMENT_ROLES), [
   body('fecha').notEmpty().withMessage('La fecha es requerida'),
   body('descripcion').notEmpty().withMessage('La descripción es requerida')
 ], async (req, res) => {
@@ -349,7 +350,7 @@ router.post('/festivos', [
 });
 
 // Actualizar día festivo
-router.put('/festivos/:id', [
+router.put('/festivos/:id', requireRole(MANAGEMENT_ROLES), [
   body('fecha').notEmpty().withMessage('La fecha es requerida'),
   body('descripcion').notEmpty().withMessage('La descripción es requerida')
 ], async (req, res) => {
@@ -416,7 +417,7 @@ router.put('/festivos/:id', [
 });
 
 // Eliminar día festivo
-router.delete('/festivos/:id', async (req, res) => {
+router.delete('/festivos/:id', requireRole(MANAGEMENT_ROLES), async (req, res) => {
   try {
     const { id } = req.params;
 

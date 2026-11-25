@@ -1,6 +1,7 @@
 import express from 'express';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { STAFF_ROLES, ADMIN_ONLY, ROLES } from '../config/permissions.js';
 import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
@@ -17,7 +18,10 @@ router.get('/', async (req, res) => {
     
     let representantesQuery;
     
-    if (userRole === 'usuario' && userId) {
+    if (userRole === ROLES.USUARIO) {
+      if (!userId) {
+        return res.status(403).json({ error: 'Acceso denegado', code: 'FORBIDDEN_RESOURCE' });
+      }
       // Usuarios normales solo ven representantes de sus alumnos asociados
       // Primero obtener los IDs de representantes asociados a alumnos del usuario
       const { data: alumnos, error: alumnosError } = await supabase
@@ -124,6 +128,8 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+    const userRole = req.user?.rol || ROLES.USUARIO;
+    const userId = req.user?.id;
     
     const { data: representante, error: repError } = await supabase
       .from('representante')
@@ -136,22 +142,38 @@ router.get('/:id', async (req, res) => {
     }
 
     // Obtener alumnos asociados
-    const { data: alumnosRel, error: alumnosError } = await supabase
+    const { data: alumnosRel } = await supabase
       .from('alumnorepresentante')
       .select(`
         id_alumno,
-        alumno:id_alumno(id, nombre, cedula)
+        alumno:id_alumno(id, nombre, cedula, usuario_id)
       `)
       .eq('id_representante', id);
 
-    const alumnos = alumnosRel?.map(rel => {
+    const todosAlumnos = alumnosRel?.map(rel => {
       const alumno = Array.isArray(rel.alumno) ? rel.alumno[0] : rel.alumno;
       return {
         id: alumno?.id,
         nombre: alumno?.nombre,
-        cedula: alumno?.cedula
+        cedula: alumno?.cedula,
+        usuario_id: alumno?.usuario_id
       };
     }).filter(a => a.id) || [];
+
+    if (userRole === ROLES.USUARIO) {
+      const perteneceAUsuario = todosAlumnos.some(a => String(a.usuario_id) === String(userId));
+      if (!perteneceAUsuario) {
+        return res.status(403).json({
+          error: 'Acceso denegado: no puedes consultar datos de este representante',
+          code: 'FORBIDDEN_RESOURCE'
+        });
+      }
+    }
+
+    const alumnos = (userRole === ROLES.USUARIO
+      ? todosAlumnos.filter(a => String(a.usuario_id) === String(userId))
+      : todosAlumnos
+    ).map(({ id: alumnoId, nombre, cedula }) => ({ id: alumnoId, nombre, cedula }));
 
     res.json({
       ...representante,
@@ -177,7 +199,7 @@ router.post('/', [
     const { cedula, nombre, telefono } = req.body;
 
     // Verificar si la cédula ya existe
-    const { data: existingRepresentantes, error: existingError } = await supabase
+    const { data: existingRepresentantes } = await supabase
       .from('representante')
       .select('id')
       .eq('cedula', cedula)
@@ -208,7 +230,7 @@ router.post('/', [
 });
 
 // Actualizar representante
-router.put('/:id', [
+router.put('/:id', requireRole(STAFF_ROLES), [
   body('cedula').notEmpty().withMessage('Cédula es requerida'),
   body('nombre').notEmpty().withMessage('Nombre es requerido')
 ], async (req, res) => {
@@ -222,7 +244,7 @@ router.put('/:id', [
     const { cedula, nombre, telefono } = req.body;
 
     // Verificar si la cédula ya existe en otro representante
-    const { data: existingRepresentantes, error: existingError } = await supabase
+    const { data: existingRepresentantes } = await supabase
       .from('representante')
       .select('id')
       .eq('cedula', cedula)
@@ -250,7 +272,7 @@ router.put('/:id', [
 });
 
 // Eliminar representante
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { STAFF_ROLES, ADMIN_ONLY, ROLES } from '../config/permissions.js';
 import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
@@ -40,11 +41,17 @@ router.get('/precio/:alumnoId', async (req, res) => {
       .from('alumno')
       .select('*')
       .eq('id', alumnoId)
-      .eq('estado', 1)
       .single();
 
-    if (alumnoError || !alumno) {
+    if (alumnoError || !alumno || alumno.estado === false) {
       return res.status(404).json({ error: 'Alumno no encontrado' });
+    }
+
+    if (req.user.rol === ROLES.USUARIO && String(alumno.usuario_id) !== String(req.user.id)) {
+      return res.status(403).json({
+        error: 'Acceso denegado: no puedes consultar precios de otro alumno',
+        code: 'FORBIDDEN_RESOURCE'
+      });
     }
 
     // Obtener categoría del alumno
@@ -147,7 +154,7 @@ router.get('/precio/:alumnoId', async (req, res) => {
 });
 
 // Obtener todos los precios (resumen)
-router.get('/precios', async (req, res) => {
+router.get('/precios', requireRole(STAFF_ROLES), async (req, res) => {
   try {
     // Obtener todos los alumnos activos
     const { data: alumnos, error: alumnosError } = await supabase
@@ -208,7 +215,7 @@ router.get('/precios', async (req, res) => {
 });
 
 // Actualizar precio personalizado de un alumno (ya no se usa, pero mantenemos para compatibilidad)
-router.put('/precio-personalizado/:alumnoId', async (req, res) => {
+router.put('/precio-personalizado/:alumnoId', requireRole(ROLES.ADMIN, ROLES.RECEPCIONISTA), async (req, res) => {
   try {
     const { alumnoId } = req.params;
     
@@ -248,7 +255,7 @@ router.put('/precio-personalizado/:alumnoId', async (req, res) => {
 });
 
 // Actualizar configuración de pagos
-router.put('/config', async (req, res) => {
+router.put('/config', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { 
       dia_corte, 
@@ -349,16 +356,26 @@ router.post('/', [
     
     const registrado_por = req.user.id;
 
-    // Si no se proporciona id_alumno, obtenerlo del usuario logueado
+    // Determinar y validar propiedad del alumno cuando el rol es usuario
     let alumnoId = id_alumno;
-    if (!alumnoId && req.user.rol === 'usuario') {
+    if (req.user.rol === ROLES.USUARIO) {
       const { data: alumnos, error: alumnosError } = await supabase
         .from('alumno')
         .select('id')
-        .eq('usuario_id', req.user.id)
-        .limit(1);
-      
-      if (!alumnosError && alumnos && alumnos.length > 0) {
+        .eq('usuario_id', req.user.id);
+
+      if (alumnosError || !alumnos || alumnos.length === 0) {
+        return res.status(400).json({ error: 'No tienes un alumno inscrito asociado a tu cuenta' });
+      }
+
+      if (alumnoId && !alumnos.some(a => String(a.id) === String(alumnoId))) {
+        return res.status(403).json({
+          error: 'Acceso denegado: no puedes registrar pagos para otro alumno',
+          code: 'FORBIDDEN_RESOURCE'
+        });
+      }
+
+      if (!alumnoId) {
         alumnoId = alumnos[0].id;
       }
     }
@@ -604,6 +621,23 @@ router.post('/', [
 router.get('/alumno/:id', async (req, res) => {
   try {
     const { id } = req.params;
+
+    const { data: alumno, error: alumnoError } = await supabase
+      .from('alumno')
+      .select('id, usuario_id')
+      .eq('id', id)
+      .single();
+
+    if (alumnoError || !alumno) {
+      return res.status(404).json({ error: 'Alumno no encontrado' });
+    }
+
+    if (req.user.rol === ROLES.USUARIO && String(alumno.usuario_id) !== String(req.user.id)) {
+      return res.status(403).json({
+        error: 'Acceso denegado: no puedes consultar los pagos de otro alumno',
+        code: 'FORBIDDEN_RESOURCE'
+      });
+    }
     
     // Obtener pagos del alumno
     const { data: pagos, error: pagosError } = await supabase
@@ -686,10 +720,13 @@ router.get('/', async (req, res) => {
 
     // Filtrar por usuario si es necesario y combinar datos
     let pagosFiltrados = pagos;
-    if (userRole === 'usuario' && userId) {
+    if (userRole === ROLES.USUARIO) {
+      if (!userId) {
+        return res.status(403).json({ error: 'Acceso denegado', code: 'FORBIDDEN_RESOURCE' });
+      }
       pagosFiltrados = pagos.filter(p => {
         const alumno = Array.isArray(p.alumno) ? p.alumno[0] : p.alumno;
-        return alumno?.usuario_id === userId;
+        return String(alumno?.usuario_id) === String(userId);
       });
     }
 
@@ -714,7 +751,7 @@ router.get('/', async (req, res) => {
 });
 
 // Obtener alumnos con pagos pendientes
-router.get('/pendientes', async (req, res) => {
+router.get('/pendientes', requireRole(STAFF_ROLES), async (req, res) => {
   try {
     const mesActual = new Date().getMonth() + 1;
     const anioActual = new Date().getFullYear();

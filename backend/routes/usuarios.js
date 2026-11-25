@@ -1,7 +1,8 @@
 import express from 'express';
 import bcrypt from 'bcryptjs';
 import supabase from '../utils/supabaseClient.js';
-import { authenticateToken } from '../middleware/auth.js';
+import { authenticateToken, requireRole } from '../middleware/auth.js';
+import { ADMIN_ONLY, STAFF_ROLES } from '../config/permissions.js';
 import { body, validationResult } from 'express-validator';
 import { unlockAccount } from '../utils/unlockCodeService.js';
 
@@ -52,8 +53,8 @@ router.get('/idioma-sistema', async (req, res) => {
 // Aplicar autenticación a todas las rutas DESPUÉS del endpoint público
 router.use(authenticateToken);
 
-// Obtener todos los usuarios
-router.get('/', async (req, res) => {
+// Obtener todos los usuarios (solo admin)
+router.get('/', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { data: usuarios, error } = await supabase
       .from('usuario')
@@ -79,8 +80,8 @@ router.get('/', async (req, res) => {
   }
 });
 
-// Obtener instructores disponibles
-router.get('/instructores', async (req, res) => {
+// Obtener instructores disponibles (personal del dojo)
+router.get('/instructores', requireRole(STAFF_ROLES), async (req, res) => {
   try {
     const { data: instructores, error } = await supabase
       .from('usuario')
@@ -101,12 +102,12 @@ router.get('/instructores', async (req, res) => {
   }
 });
 
-// Crear nuevo usuario
-router.post('/', [
+// Crear nuevo usuario (solo admin)
+router.post('/', requireRole(ADMIN_ONLY), [
   body('username').notEmpty().withMessage('El nombre de usuario es requerido'),
   body('email').isEmail().withMessage('Email inválido'),
   body('password').isLength({ min: 6 }).withMessage('La contraseña debe tener al menos 6 caracteres'),
-  body('rol').isIn(['admin', 'instructor', 'recepcionista']).withMessage('Rol inválido'),
+  body('rol').isIn(['admin', 'instructor', 'asistente', 'recepcionista']).withMessage('Rol inválido'),
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -256,7 +257,7 @@ router.put('/cambiar-idioma', [
 });
 
 // Cambiar idioma globalmente para TODOS los usuarios (solo admin)
-router.put('/cambiar-idioma-global', [
+router.put('/cambiar-idioma-global', requireRole(ADMIN_ONLY), [
   body('idioma_preferido').isIn(['es', 'en']).withMessage('Idioma inválido (debe ser es o en)')
 ], async (req, res) => {
   try {
@@ -297,9 +298,15 @@ router.put('/cambiar-idioma-global', [
   }
 });
 
-// Actualizar usuario
-router.put('/:id', async (req, res) => {
+// Actualizar usuario (solo admin)
+router.put('/:id', requireRole(ADMIN_ONLY), [
+  body('rol').optional().isIn(['admin', 'instructor', 'asistente', 'recepcionista', 'usuario']).withMessage('Rol inválido')
+], async (req, res) => {
   try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
     const { id } = req.params;
     const { nombre_completo, rol, activo } = req.body;
 
@@ -324,14 +331,14 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Obtener roles - Funcionalidad deshabilitada (tabla eliminada)
-router.get('/roles', async (req, res) => {
+// Obtener roles (solo admin)
+router.get('/roles', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
-    // Retornar roles hardcodeados ya que la tabla fue eliminada
     const roles = [
       { id: 1, nombre: 'admin', descripcion: 'Administrador' },
       { id: 2, nombre: 'instructor', descripcion: 'Instructor' },
-      { id: 3, nombre: 'recepcionista', descripcion: 'Recepcionista' }
+      { id: 3, nombre: 'asistente', descripcion: 'Asistente' },
+      { id: 4, nombre: 'recepcionista', descripcion: 'Recepcionista' }
     ];
     res.json(roles);
   } catch (error) {
@@ -340,20 +347,20 @@ router.get('/roles', async (req, res) => {
   }
 });
 
-// Log de actividades
-router.post('/log', async (req, res) => {
+// Log de actividades (solo admin, usando usuario autenticado real)
+router.post('/log', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
-    const { usuario_id, accion, modulo, descripcion, ip_address, user_agent } = req.body;
+    const { accion, modulo, descripcion } = req.body;
     
     const { data: newLog, error } = await supabase
       .from('log_actividades')
       .insert([{
-        usuario_id,
+        usuario_id: req.user.id,
         accion,
         modulo,
         descripcion,
-        ip_address,
-        user_agent
+        ip_address: req.ip || req.socket?.remoteAddress || null,
+        user_agent: req.get('User-Agent') || null
       }])
       .select('id')
       .single();
@@ -373,8 +380,8 @@ router.post('/log', async (req, res) => {
   }
 });
 
-// Obtener logs de actividad
-router.get('/logs', async (req, res) => {
+// Obtener logs de actividad (solo admin)
+router.get('/logs', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const limit = req.query.limit ? parseInt(req.query.limit) : 100;
     
@@ -428,8 +435,8 @@ router.get('/logs', async (req, res) => {
   }
 });
 
-// Limpiar logs antiguos
-router.delete('/logs/cleanup', async (req, res) => {
+// Limpiar logs antiguos (solo admin)
+router.delete('/logs/cleanup', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const days = req.query.days ? parseInt(req.query.days) : 90;
     
@@ -474,7 +481,7 @@ router.delete('/logs/cleanup', async (req, res) => {
 });
 
 // Desbloquear cuenta de usuario (solo admin)
-router.post('/:id/unlock', async (req, res) => {
+router.post('/:id/unlock', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
     const userId = parseInt(id);
@@ -514,7 +521,7 @@ router.post('/:id/unlock', async (req, res) => {
 });
 
 // Desbloquear cuenta por email (solo admin)
-router.post('/unlock-by-email', [
+router.post('/unlock-by-email', requireRole(ADMIN_ONLY), [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido')
 ], async (req, res) => {

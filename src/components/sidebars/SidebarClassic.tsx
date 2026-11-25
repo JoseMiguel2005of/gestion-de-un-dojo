@@ -13,18 +13,19 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/hooks/useLanguage";
+import { canAccessRoute } from "@/config/permissions";
 
 const getMenuItems = (isEnglish: boolean) => [
-  { title: isEnglish ? "Home" : "Inicio", url: "/", icon: Home, roles: ["admin", "sensei", "asistente", "instructor", "recepcionista", "usuario"] },
-  { title: isEnglish ? "Students" : "Alumnos", url: "/alumnos", icon: Users, roles: ["admin", "sensei", "asistente", "instructor", "recepcionista"] },
-  { title: isEnglish ? "Categories" : "Categorías", url: "/niveles", icon: Award, roles: ["admin", "sensei", "asistente", "instructor", "recepcionista"] },
-  { title: isEnglish ? "Representatives" : "Representantes", url: "/representantes", icon: UserCircle, roles: ["admin", "sensei", "asistente", "instructor", "recepcionista"] },
-  { title: isEnglish ? "Schedules" : "Horarios", url: "/horarios", icon: Clock, roles: ["admin", "sensei", "asistente", "instructor", "recepcionista", "usuario"] },
-  { title: isEnglish ? "Payments" : "Pagos", url: "/pagos", icon: DollarSign, roles: ["admin", "sensei", "asistente", "instructor", "recepcionista", "usuario"] },
-  { title: isEnglish ? "Evaluations" : "Evaluaciones", url: "/evaluaciones", icon: FileText, roles: ["admin", "sensei", "asistente", "instructor", "usuario"] },
-  { title: isEnglish ? "Reports" : "Reportes", url: "/reportes", icon: BarChart3, roles: ["admin", "sensei"] },
-  { title: isEnglish ? "Settings" : "Configuración", url: "/configuracion", icon: Settings, roles: ["admin", "sensei", "asistente", "instructor", "recepcionista", "usuario"] },
-  { title: isEnglish ? "Advanced Config." : "Config. Avanzada", url: "/configuracion-avanzada", icon: Sliders, roles: ["admin"] },
+  { title: isEnglish ? "Home" : "Inicio", url: "/", icon: Home },
+  { title: isEnglish ? "Students" : "Alumnos", url: "/alumnos", icon: Users },
+  { title: isEnglish ? "Categories" : "Categorías", url: "/niveles", icon: Award },
+  { title: isEnglish ? "Representatives" : "Representantes", url: "/representantes", icon: UserCircle },
+  { title: isEnglish ? "Schedules" : "Horarios", url: "/horarios", icon: Clock },
+  { title: isEnglish ? "Payments" : "Pagos", url: "/pagos", icon: DollarSign },
+  { title: isEnglish ? "Evaluations" : "Evaluaciones", url: "/evaluaciones", icon: FileText },
+  { title: isEnglish ? "Reports" : "Reportes", url: "/reportes", icon: BarChart3 },
+  { title: isEnglish ? "Settings" : "Configuración", url: "/configuracion", icon: Settings },
+  { title: isEnglish ? "Advanced Config." : "Config. Avanzada", url: "/configuracion-avanzada", icon: Sliders },
 ];
 
 export function SidebarClassic() {
@@ -32,18 +33,9 @@ export function SidebarClassic() {
   const { user, loading } = useAuth();
   const { isEnglish } = useLanguage();
   
-  // Filtrar menú según el rol del usuario
-  let filteredMenuItems = getMenuItems(isEnglish);
-  
-  if (!loading && user) {
-    const userRole = user.rol || 'usuario';
-    filteredMenuItems = getMenuItems(isEnglish).filter(item => {
-      if (!item.roles) return true;
-      return item.roles.includes(userRole);
-    });
-  } else {
-    filteredMenuItems = getMenuItems(isEnglish).filter(item => item.title !== (isEnglish ? "Advanced Config." : "Config. Avanzada"));
-  }
+  const filteredMenuItems = !loading && user
+    ? getMenuItems(isEnglish).filter((item) => canAccessRoute(user.rol, item.url))
+    : [];
 
   return (
     <Sidebar collapsible="icon">

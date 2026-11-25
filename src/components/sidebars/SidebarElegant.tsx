@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/hooks/useLanguage";
+import { canAccessRoute } from "@/config/permissions";
 import { apiClient } from "@/lib/api";
 import { useEffect, useState } from "react";
 
@@ -20,31 +21,31 @@ const getMenuSections = (isEnglish: boolean) => [
   {
     label: isEnglish ? "Main" : "Principal",
     items: [
-      { title: isEnglish ? "Home" : "Inicio", url: "/", icon: Home, roles: ["admin", "asistente", "instructor", "recepcionista", "usuario"] },
+      { title: isEnglish ? "Home" : "Inicio", url: "/", icon: Home },
     ]
   },
   {
     label: isEnglish ? "Management" : "Gestión",
     items: [
-      { title: isEnglish ? "Students" : "Alumnos", url: "/alumnos", icon: Users, roles: ["admin", "asistente", "instructor", "recepcionista"] },
-      { title: isEnglish ? "Categories" : "Categorías", url: "/niveles", icon: Award, roles: ["admin", "asistente", "instructor", "recepcionista"] },
-      { title: isEnglish ? "Representatives" : "Representantes", url: "/representantes", icon: UserCircle, roles: ["admin", "asistente", "instructor", "recepcionista"] },
-      { title: isEnglish ? "Schedules" : "Horarios", url: "/horarios", icon: Clock, roles: ["admin", "asistente", "instructor", "recepcionista", "usuario"] },
+      { title: isEnglish ? "Students" : "Alumnos", url: "/alumnos", icon: Users },
+      { title: isEnglish ? "Categories" : "Categorías", url: "/niveles", icon: Award },
+      { title: isEnglish ? "Representatives" : "Representantes", url: "/representantes", icon: UserCircle },
+      { title: isEnglish ? "Schedules" : "Horarios", url: "/horarios", icon: Clock },
     ]
   },
   {
     label: isEnglish ? "Academic" : "Académico",
     items: [
-      { title: isEnglish ? "Evaluations" : "Evaluaciones", url: "/evaluaciones", icon: FileText, roles: ["admin", "asistente", "instructor", "usuario"] },
-      { title: isEnglish ? "Payments" : "Pagos", url: "/pagos", icon: DollarSign, roles: ["admin", "asistente", "instructor", "recepcionista", "usuario"] },
-      { title: isEnglish ? "Reports" : "Reportes", url: "/reportes", icon: BarChart3, roles: ["admin", "instructor"] },
+      { title: isEnglish ? "Evaluations" : "Evaluaciones", url: "/evaluaciones", icon: FileText },
+      { title: isEnglish ? "Payments" : "Pagos", url: "/pagos", icon: DollarSign },
+      { title: isEnglish ? "Reports" : "Reportes", url: "/reportes", icon: BarChart3 },
     ]
   },
   {
     label: isEnglish ? "System" : "Sistema",
     items: [
-      { title: isEnglish ? "Settings" : "Configuración", url: "/configuracion", icon: Settings, roles: ["admin", "asistente", "instructor", "recepcionista", "usuario"] },
-      { title: isEnglish ? "Advanced Config." : "Config. Avanzada", url: "/configuracion-avanzada", icon: Sliders, roles: ["admin"] },
+      { title: isEnglish ? "Settings" : "Configuración", url: "/configuracion", icon: Settings },
+      { title: isEnglish ? "Advanced Config." : "Config. Avanzada", url: "/configuracion-avanzada", icon: Sliders },
     ]
   }
 ];
@@ -77,25 +78,14 @@ export function SidebarElegant() {
     loadSocialLinks();
   }, []);
   
-  // Filtrar secciones según el rol del usuario
-  let filteredSections = getMenuSections(isEnglish);
-  
-  if (!loading && user) {
-    const userRole = user.rol || 'usuario';
-    
-    filteredSections = getMenuSections(isEnglish).map(section => ({
-      ...section,
-      items: section.items.filter(item => {
-        if (!item.roles) return true;
-        return item.roles.includes(userRole);
-      })
-    })).filter(section => section.items.length > 0);
-  } else {
-    filteredSections = getMenuSections(isEnglish).map(section => ({
-      ...section,
-      items: section.items.filter(item => item.title !== (isEnglish ? "Advanced Config." : "Config. Avanzada"))
-    })).filter(section => section.items.length > 0);
-  }
+  const filteredSections = !loading && user
+    ? getMenuSections(isEnglish)
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((item) => canAccessRoute(user.rol, item.url)),
+        }))
+        .filter((section) => section.items.length > 0)
+    : [];
 
   return (
     <Sidebar collapsible="icon" side="left" className="border-r border-gray-200 dark:border-gray-700">
