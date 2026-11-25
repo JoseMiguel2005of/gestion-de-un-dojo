@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { AuthContext, useAuthState } from "./hooks/useAuth";
 import { LanguageProvider } from "./hooks/useLanguage";
+import { ThemeProvider } from "./hooks/useTheme";
 import { Layout } from "./components/Layout";
 import { RoleGuard } from "./components/RoleGuard";
 import { ROUTE_PERMISSIONS } from "./config/permissions";
@@ -31,8 +32,9 @@ const AppContent = () => {
 
   return (
     <AuthContext.Provider value={authState}>
-      <LanguageProvider>
-        <BrowserRouter>
+      <ThemeProvider>
+        <LanguageProvider>
+          <BrowserRouter>
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route path="/reset-password" element={<ResetPassword />} />
@@ -123,8 +125,9 @@ const AppContent = () => {
             {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
             <Route path="*" element={<NotFound />} />
           </Routes>
-        </BrowserRouter>
-      </LanguageProvider>
+          </BrowserRouter>
+        </LanguageProvider>
+      </ThemeProvider>
     </AuthContext.Provider>
   );
 };

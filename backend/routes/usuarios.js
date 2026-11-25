@@ -150,7 +150,10 @@ router.post('/', requireRole(ADMIN_ONLY), [
         email,
         password_hash: hashedPassword,
         nombre_completo,
-        rol
+        rol,
+        estado: true,
+        activo: true,
+        email_verificado: true
       }])
       .select('id')
       .single();
@@ -310,13 +313,17 @@ router.put('/:id', requireRole(ADMIN_ONLY), [
     const { id } = req.params;
     const { nombre_completo, rol, activo } = req.body;
 
+    const updatePayload = {};
+    if (nombre_completo !== undefined) updatePayload.nombre_completo = nombre_completo;
+    if (rol !== undefined) updatePayload.rol = rol;
+    if (activo !== undefined) {
+      updatePayload.estado = Boolean(activo);
+      updatePayload.activo = Boolean(activo);
+    }
+
     const { error } = await supabase
       .from('usuario')
-      .update({
-        nombre_completo,
-        rol,
-        estado: activo
-      })
+      .update(updatePayload)
       .eq('id', id);
 
     if (error) {

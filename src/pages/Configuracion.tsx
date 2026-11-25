@@ -18,7 +18,7 @@ import type { SidebarTheme } from "@/hooks/useTheme";
 export default function Configuracion() {
   const { user } = useAuth();
   const { isEnglish } = useLanguage();
-  const { loadTheme } = useTheme();
+  const { loadTheme, setThemeMode } = useTheme();
   const [status, setStatus] = useState<"checking" | "connected" | "error">("checking");
   const [loading, setLoading] = useState(false);
   const [generatingDemo, setGeneratingDemo] = useState(false);
@@ -176,12 +176,7 @@ export default function Configuracion() {
         if (isAdmin) {
           await loadTheme();
         } else {
-          const root = document.documentElement;
-          if (config.tema_modo === 'dark') {
-            root.classList.add('dark');
-          } else {
-            root.classList.remove('dark');
-          }
+          setThemeMode(config.tema_modo === 'dark' ? 'dark' : 'light');
         }
         previousThemeRef.current = config.tema_modo;
       }

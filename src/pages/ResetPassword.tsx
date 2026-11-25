@@ -24,51 +24,6 @@ const ResetPassword = () => {
 
   const token = searchParams.get("token");
 
-  // Forzar tema oscuro siempre en la página de reset password
-  useEffect(() => {
-    const root = document.documentElement;
-    const body = document.body;
-    
-    // Forzar tema oscuro inmediatamente
-    root.classList.add('dark');
-    body.classList.add('dark');
-    
-    // Crear un observer para mantener el tema oscuro incluso si otros efectos lo cambian
-    const observer = new MutationObserver(() => {
-      if (!root.classList.contains('dark')) {
-        root.classList.add('dark');
-      }
-      if (!body.classList.contains('dark')) {
-        body.classList.add('dark');
-      }
-    });
-    
-    observer.observe(root, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
-    
-    observer.observe(body, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
-    
-    // Verificar periódicamente
-    const interval = setInterval(() => {
-      if (!root.classList.contains('dark')) {
-        root.classList.add('dark');
-      }
-      if (!body.classList.contains('dark')) {
-        body.classList.add('dark');
-      }
-    }, 100);
-    
-    return () => {
-      observer.disconnect();
-      clearInterval(interval);
-    };
-  }, []);
-
   useEffect(() => {
     const verifyToken = async () => {
       if (!token) {
@@ -164,7 +119,7 @@ const ResetPassword = () => {
 
   if (verifying) {
     return (
-      <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+      <div className="dark min-h-screen text-foreground flex items-center justify-center relative overflow-hidden">
         <div 
           className="absolute inset-0 bg-cover bg-center"
           style={{ backgroundImage: `url(${dojoBackground})` }}
@@ -190,7 +145,7 @@ const ResetPassword = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+    <div className="dark min-h-screen text-foreground flex items-center justify-center relative overflow-hidden">
       {/* Background image with overlay */}
       <div 
         className="absolute inset-0 bg-cover bg-center"

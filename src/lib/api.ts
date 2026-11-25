@@ -239,6 +239,7 @@ class ApiClient {
       user: {
         id: string;
         username: string;
+        email?: string;
         nombre_completo: string;
         rol: string;
         idioma_preferido?: string;

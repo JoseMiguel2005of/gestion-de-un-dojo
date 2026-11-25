@@ -29,14 +29,6 @@ const VerifyEmail = () => {
     }
   }, [searchParams]);
 
-  // Forzar tema oscuro siempre en la página de verificación
-  useEffect(() => {
-    document.documentElement.classList.add("dark");
-    return () => {
-      document.documentElement.classList.remove("dark");
-    };
-  }, []);
-
   const verificationSchema = z.object({
     email: z.string().email({
       message: isEnglish ? "Invalid email format" : "Formato de email inválido",
@@ -127,7 +119,7 @@ const VerifyEmail = () => {
   if (verified) {
     return (
       <div 
-        className="min-h-screen flex items-center justify-center p-4"
+        className="dark min-h-screen text-foreground flex items-center justify-center p-4"
         style={{
           backgroundImage: `url(${dojoBackground})`,
           backgroundSize: 'cover',
@@ -156,7 +148,7 @@ const VerifyEmail = () => {
 
   return (
     <div 
-      className="min-h-screen flex items-center justify-center p-4"
+      className="dark min-h-screen text-foreground flex items-center justify-center p-4"
       style={{
         backgroundImage: `url(${dojoBackground})`,
         backgroundSize: 'cover',

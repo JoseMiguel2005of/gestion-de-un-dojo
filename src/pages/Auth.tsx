@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useLanguage } from "@/hooks/useLanguage";
 import { Button } from "@/components/ui/button";
@@ -52,6 +52,7 @@ const createSchemas = (isEnglish: boolean) => {
 
 const Auth = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { login, isAuthenticated } = useAuth();
   const { isEnglish } = useLanguage();
   const [loading, setLoading] = useState(false);
@@ -61,7 +62,7 @@ const Auth = () => {
   const { loginSchema, registerSchema, forgotPasswordSchema } = createSchemas(isEnglish);
 
   // Login form
-  const [email, setEmail] = useState("");
+  const [email, setEmail] = useState(() => searchParams.get("email") || "");
   const [password, setPassword] = useState("");
   const [remainingAttempts, setRemainingAttempts] = useState<number | null>(null);
 
@@ -76,57 +77,18 @@ const Auth = () => {
   const [forgotEmail, setForgotEmail] = useState("");
 
   useEffect(() => {
+    const emailParam = searchParams.get("email");
+    if (emailParam) {
+      setEmail(emailParam);
+    }
+  }, [searchParams]);
+
+  useEffect(() => {
     // Verificar si ya hay sesión activa
     if (isAuthenticated) {
       navigate("/");
     }
   }, [isAuthenticated, navigate]);
-
-  // Forzar tema oscuro siempre en la página de login
-  useEffect(() => {
-    const root = document.documentElement;
-    const body = document.body;
-    
-    // Forzar tema oscuro inmediatamente
-    root.classList.add('dark');
-    body.classList.add('dark');
-    
-    // Crear un observer para mantener el tema oscuro incluso si otros efectos lo cambian
-    const observer = new MutationObserver(() => {
-      if (!root.classList.contains('dark')) {
-        root.classList.add('dark');
-      }
-      if (!body.classList.contains('dark')) {
-        body.classList.add('dark');
-      }
-    });
-    
-    // Observar cambios en las clases
-    observer.observe(root, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
-    
-    observer.observe(body, {
-      attributes: true,
-      attributeFilter: ['class']
-    });
-    
-    // También verificar periódicamente (por si acaso)
-    const interval = setInterval(() => {
-      if (!root.classList.contains('dark')) {
-        root.classList.add('dark');
-      }
-      if (!body.classList.contains('dark')) {
-        body.classList.add('dark');
-      }
-    }, 100);
-    
-    return () => {
-      observer.disconnect();
-      clearInterval(interval);
-    };
-  }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -158,13 +120,20 @@ const Auth = () => {
           variant: "destructive",
         });
       } else {
-        // Verificar si es un error de cuenta bloqueada
         const errorAny = error as any;
         const errorData = errorAny.data || errorAny.response?.data || {};
-        const status = errorAny.status || errorAny.response?.status;
         
-        if (errorData.locked || status === 403) {
-          // Redirigir a la página de desbloqueo
+        if (errorData.requiresVerification) {
+          toast({
+            title: isEnglish ? "Email verification required" : "Verificación de email pendiente",
+            description: errorData.message || (isEnglish
+              ? "Please verify your email address before signing in."
+              : "Por favor, verifica tu correo electrónico antes de iniciar sesión."),
+          });
+          setTimeout(() => {
+            navigate(`/verify-email?email=${encodeURIComponent(email)}`);
+          }, 1200);
+        } else if (errorData.locked) {
           toast({
             title: isEnglish ? "Account locked" : "Cuenta bloqueada",
             description: errorData.message || (isEnglish 
@@ -172,13 +141,18 @@ const Auth = () => {
               : "Tu cuenta ha sido bloqueada. Serás redirigido para desbloquearla."),
             variant: "destructive",
           });
-          
-          // Redirigir a la página de desbloqueo después de un breve delay
           setTimeout(() => {
             navigate(`/unlock-account?email=${encodeURIComponent(email)}`);
-          }, 1500);
+          }, 1200);
+        } else if (errorData.inactive) {
+          toast({
+            title: isEnglish ? "Account deactivated" : "Cuenta desactivada",
+            description: errorData.message || (isEnglish
+              ? "Your account is currently deactivated. Contact the dojo administrator."
+              : "Tu cuenta se encuentra desactivada. Contacta al administrador del dojo."),
+            variant: "destructive",
+          });
         } else if (errorData.attempts !== undefined || errorData.remaining !== undefined) {
-          // Mostrar intentos restantes
           setRemainingAttempts(errorData.remaining);
           toast({
             title: isEnglish ? "Incorrect credentials" : "Credenciales incorrectas",
@@ -234,9 +208,8 @@ const Auth = () => {
         navigate(`/verify-email?email=${encodeURIComponent(validated.email)}`);
       } else {
         // Si no requiere verificación (caso antiguo), guardar token y redirigir
-        if (response.token && response.user) {
-          localStorage.setItem('token', response.token);
-          localStorage.setItem('user', JSON.stringify(response.user));
+        if (response.token) {
+          api.setToken(response.token);
         }
         
         toast({
@@ -305,7 +278,7 @@ const Auth = () => {
 
 
   return (
-    <div className="min-h-screen flex items-center justify-center relative overflow-hidden">
+    <div className="dark min-h-screen text-foreground flex items-center justify-center relative overflow-hidden">
       {/* Background image with overlay */}
       <div 
         className="absolute inset-0 bg-cover bg-center"

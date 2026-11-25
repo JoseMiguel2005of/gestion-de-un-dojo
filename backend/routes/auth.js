@@ -5,6 +5,7 @@ import crypto from 'crypto';
 import supabase from '../utils/supabaseClient.js';
 import { envConfig } from '../config/env.js';
 import { generateToken } from '../middleware/auth.js';
+import { normalizeRole } from '../config/permissions.js';
 import {
   authGeneralLimiter,
   loginLimiter,
@@ -68,6 +69,15 @@ router.post('/login', loginLimiter, [
         error: 'Email no verificado',
         requiresVerification: true,
         message: 'Por favor, verifica tu correo electrónico antes de iniciar sesión. Revisa tu bandeja de entrada para el código de verificación.' 
+      });
+    }
+
+    // Verificar si la cuenta está activa
+    if (user.estado === false || user.estado === 0) {
+      return res.status(403).json({
+        error: 'Cuenta desactivada',
+        inactive: true,
+        message: 'Tu cuenta se encuentra desactivada. Contacta al administrador del dojo.'
       });
     }
 
@@ -152,16 +162,23 @@ router.post('/login', loginLimiter, [
       }
     }
 
-    // Login exitoso - resetear intentos fallidos
+    // Login exitoso - resetear intentos fallidos y registrar último acceso
     await resetFailedAttempts(user.id);
 
-    const token = generateToken(user);
+    const nowIso = new Date().toISOString();
+    await supabase
+      .from('usuario')
+      .update({ ultimo_acceso: nowIso })
+      .eq('id', user.id);
+
+    const normalizedRol = normalizeRole(user.rol);
+    const token = generateToken({ ...user, rol: normalizedRol });
 
     await registrarLog({
       usuario_id: user.id,
       accion: LogActions.LOGIN,
       modulo: LogModules.AUTH,
-      descripcion: `Login exitoso - Usuario: ${user.username} (${user.rol})`,
+      descripcion: `Login exitoso - Usuario: ${user.username} (${normalizedRol})`,
       ip_address: req.ip || req.connection.remoteAddress,
       user_agent: req.get('User-Agent')
     });
@@ -173,7 +190,7 @@ router.post('/login', loginLimiter, [
         username: user.username,
         email: user.email,
         nombre_completo: user.nombre_completo,
-        rol: user.rol,
+        rol: normalizedRol,
         idioma_preferido: user.idioma_preferido || 'es'
       }
     });
@@ -891,26 +908,29 @@ router.get('/verify', async (req, res) => {
     // Verificar que el usuario aún existe y está activo
     const { data: users, error: userError } = await supabase
       .from('usuario')
-      .select('id, username, nombre_completo, rol, idioma_preferido')
+      .select('id, username, email, nombre_completo, rol, idioma_preferido')
       .eq('id', decoded.id)
       .eq('estado', true)
       .limit(1);
 
     if (userError) {
       console.error('Error verificando usuario:', userError);
-      return res.status(401).json({ error: 'Token inválido' });
+      return res.status(401).json({ error: 'Token inválido', code: 'TOKEN_INVALID' });
     }
 
     if (!users || users.length === 0) {
-      return res.status(401).json({ error: 'Usuario no encontrado' });
+      return res.status(401).json({ error: 'Usuario no encontrado', code: 'TOKEN_INVALID' });
     }
 
     res.json({
       valid: true,
-      user: users[0]
+      user: {
+        ...users[0],
+        rol: normalizeRole(users[0].rol),
+      }
     });
   } catch (error) {
-    res.status(401).json({ error: 'Token inválido' });
+    res.status(401).json({ error: 'Token inválido', code: 'TOKEN_INVALID' });
   }
 });
 

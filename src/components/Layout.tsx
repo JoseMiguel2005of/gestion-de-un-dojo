@@ -1,7 +1,6 @@
 import { useEffect } from "react";
 import { useNavigate, Outlet } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
-import { useTheme } from "@/hooks/useTheme";
 import { useLanguage } from "@/hooks/useLanguage";
 import { Loader2, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,6 @@ import { toast } from "@/hooks/use-toast";
 export function Layout() {
   const navigate = useNavigate();
   const { user, loading, logout, isAuthenticated } = useAuth();
-  const { loadTheme } = useTheme();
   const { isEnglish } = useLanguage();
 
   useEffect(() => {
@@ -20,11 +18,6 @@ export function Layout() {
       navigate("/auth");
     }
   }, [loading, isAuthenticated, navigate]);
-
-  // Cargar tema al montar el componente
-  useEffect(() => {
-    loadTheme();
-  }, [loadTheme]);
 
   const handleLogout = async () => {
     try {
