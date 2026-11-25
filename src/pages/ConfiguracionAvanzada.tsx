@@ -172,30 +172,28 @@ export default function ConfiguracionAvanzada() {
         setUsuarios(usuariosData);
         setRoles(rolesData);
       } else if (activeTab === "pagos") {
-        const [data, nivelesData] = await Promise.all([
+        const [data, categoriasData] = await Promise.all([
           apiClient.getConfigPagos(),
-          apiClient.getNiveles()
+          apiClient.getCategoriasEdad()
         ]);
         if (data.metodos_pago && typeof data.metodos_pago === 'string') {
           data.metodos_pago = JSON.parse(data.metodos_pago);
         }
-        // Si no hay pais_configuracion, establecer por defecto venezuela
         if (!data.pais_configuracion) {
           data.pais_configuracion = 'venezuela';
         }
-        // Asegurar que tipo_cambio_usd_bs sea un número válido
         if (data.tipo_cambio_usd_bs === null || data.tipo_cambio_usd_bs === undefined || isNaN(Number(data.tipo_cambio_usd_bs))) {
           data.tipo_cambio_usd_bs = 220;
         } else {
           data.tipo_cambio_usd_bs = Number(data.tipo_cambio_usd_bs);
         }
         setConfigPagos({ ...configPagos, ...data });
-        setNiveles(nivelesData || []);
+        setNiveles(categoriasData || []);
+        setCategoriasEdad(categoriasData || []);
         
-        // Inicializar precios temporales (convertir a número)
         const tempPrecios: {[key: number]: number} = {};
-        (nivelesData || []).forEach((nivel: any) => {
-          tempPrecios[nivel.id] = Number(nivel.precio_mensualidad) || 0;
+        (categoriasData || []).forEach((cat: any) => {
+          tempPrecios[cat.id] = Number(cat.precio_mensualidad) || 0;
         });
         setPreciosTemporales(tempPrecios);
       } else if (activeTab === "horarios") {
@@ -283,21 +281,24 @@ export default function ConfiguracionAvanzada() {
 
   const guardarPrecioNivel = async (nivelId: number) => {
     try {
-      const nivel = niveles.find(n => n.id === nivelId);
-      if (!nivel) return;
+      const categoria = niveles.find(n => n.id === nivelId);
+      if (!categoria) return;
 
-      await apiClient.updateNivel(nivelId.toString(), {
-        nombre: nivel.nivel || nivel.nombre,
-        color: nivel.cinta || nivel.color,
+      await apiClient.updateCategoriaEdad(nivelId.toString(), {
+        nombre: categoria.nombre || categoria.nivel,
+        edad_min: categoria.edad_min ?? 6,
+        edad_max: categoria.edad_max ?? 99,
+        cinta_maxima: categoria.cinta_maxima || null,
+        orden: categoria.orden ?? 99,
         precio_mensualidad: preciosTemporales[nivelId]
       });
 
-      toast({ title: "Precio actualizado", description: `Precio de ${nivel.nivel || nivel.nombre} actualizado correctamente` });
+      toast({ title: "Precio actualizado", description: `Precio de ${categoria.nombre || categoria.nivel} actualizado correctamente` });
       setEditandoPrecio({...editandoPrecio, [nivelId]: false});
       
-      // Recargar niveles
-      const nivelesData = await apiClient.getNiveles();
-      setNiveles(nivelesData || []);
+      const categoriasData = await apiClient.getCategoriasEdad();
+      setNiveles(categoriasData || []);
+      setCategoriasEdad(categoriasData || []);
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -924,9 +925,9 @@ export default function ConfiguracionAvanzada() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Categoría</TableHead>
-                    <TableHead>Color de Cinta</TableHead>
-                    <TableHead>Precio Mensual ({configPagos.moneda})</TableHead>
+                    <TableHead>Categoría de Edad</TableHead>
+                    <TableHead>Rango / Cinta Máx.</TableHead>
+                    <TableHead>Precio Mensual (USD$)</TableHead>
                     <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -934,24 +935,16 @@ export default function ConfiguracionAvanzada() {
                   {!niveles || niveles.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={4} className="text-center text-gray-500 py-8">
-                        No hay categorías registradas. Ve a <strong>Niveles</strong> para crear categorías.
+                        No hay categorías registradas. Ve a <strong>Categorías</strong> para crearlas.
                       </TableCell>
                     </TableRow>
                   ) : (
                     niveles.map(nivel => (
                       <TableRow key={nivel.id}>
-                        <TableCell className="font-medium">{nivel.nivel || nivel.nombre}</TableCell>
-                        <TableCell>
-                          {nivel.cinta || nivel.color ? (
-                            <div className="flex items-center gap-2">
-                              <div 
-                                className="w-8 h-4 rounded border" 
-                                style={{ backgroundColor: nivel.cinta || nivel.color }}
-                              />
-                            </div>
-                          ) : (
-                            <span className="text-gray-400">Sin color</span>
-                          )}
+                        <TableCell className="font-medium">{nivel.nombre || nivel.nivel}</TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {nivel.edad_min !== undefined ? `${nivel.edad_min}-${nivel.edad_max} años` : ''}
+                          {nivel.cinta_maxima ? ` • Máx: ${nivel.cinta_maxima}` : ''}
                         </TableCell>
                         <TableCell>
                           {editandoPrecio[nivel.id] ? (
@@ -968,7 +961,7 @@ export default function ConfiguracionAvanzada() {
                             />
                           ) : (
                             <span className="text-lg font-semibold text-green-600 dark:text-green-400">
-                              {configPagos.moneda} {Number(nivel.precio_mensualidad || 0).toFixed(2)}
+                              USD$ {Number(nivel.precio_mensualidad || 0).toFixed(2)}
                             </span>
                           )}
                         </TableCell>

@@ -580,9 +580,46 @@ class ApiClient {
     });
   }
 
-  async getPagos(params?: { mes?: number; anio?: number; limit?: number }) {
-    const queryString = params ? `?${new URLSearchParams(params as any).toString()}` : '';
+  async getPagos(params?: { mes?: number; anio?: number; estado?: string; id_alumno?: number; page?: number; limit?: number }) {
+    const cleanParams: Record<string, string> = {};
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          cleanParams[k] = String(v);
+        }
+      });
+    }
+    const queryString = Object.keys(cleanParams).length > 0
+      ? `?${new URLSearchParams(cleanParams).toString()}`
+      : '';
     return this.request<any[]>(`/pagos${queryString}`);
+  }
+
+  async getPagosPaginados(params?: { mes?: number; anio?: number; estado?: string; id_alumno?: number; page?: number; limit?: number }) {
+    const cleanParams: Record<string, string> = { paginated: 'true' };
+    if (params) {
+      Object.entries(params).forEach(([k, v]) => {
+        if (v !== undefined && v !== null && v !== '') {
+          cleanParams[k] = String(v);
+        }
+      });
+    }
+    const queryString = `?${new URLSearchParams(cleanParams).toString()}`;
+    return this.request<{ items: any[]; total: number; page: number; limit: number }>(`/pagos${queryString}`);
+  }
+
+  async confirmarPago(idPago: number | string, observaciones?: string) {
+    return this.request<{ message: string }>(`/pagos/${idPago}/confirmar`, {
+      method: 'PATCH',
+      body: JSON.stringify({ observaciones }),
+    });
+  }
+
+  async rechazarPago(idPago: number | string, motivo_rechazo: string) {
+    return this.request<{ message: string }>(`/pagos/${idPago}/rechazar`, {
+      method: 'PATCH',
+      body: JSON.stringify({ motivo_rechazo }),
+    });
   }
 
   async getPagosAlumno(idAlumno: string) {
@@ -596,8 +633,12 @@ class ApiClient {
     });
   }
 
-  async getPagosPendientes() {
-    return this.request<any[]>('/pagos/pendientes');
+  async getPagosPendientes(params?: { mes?: number; anio?: number }) {
+    const cleanParams: Record<string, string> = {};
+    if (params?.mes) cleanParams.mes = String(params.mes);
+    if (params?.anio) cleanParams.anio = String(params.anio);
+    const qs = Object.keys(cleanParams).length > 0 ? `?${new URLSearchParams(cleanParams).toString()}` : '';
+    return this.request<any[]>(`/pagos/pendientes${qs}`);
   }
 
   // Nuevos métodos para sistema de precios dinámicos

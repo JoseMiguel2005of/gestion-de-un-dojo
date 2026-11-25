@@ -6,8 +6,37 @@ import { body, validationResult } from 'express-validator';
 
 const router = express.Router();
 
-// Aplicar autenticación a todas las rutas
 router.use(authenticateToken);
+
+const DEFAULT_CATEGORY_META = {
+  'Benjamín': { edad_min: 6, edad_max: 8, cinta_maxima: 'Verde', orden: 1 },
+  'Alevín': { edad_min: 9, edad_max: 10, cinta_maxima: 'Azul', orden: 2 },
+  'Infantil': { edad_min: 11, edad_max: 12, cinta_maxima: 'Azul', orden: 3 },
+  'Cadete': { edad_min: 13, edad_max: 15, cinta_maxima: 'Marrón', orden: 4 },
+  'Junior': { edad_min: 16, edad_max: 17, cinta_maxima: 'Negro', orden: 5 },
+  'Senior': { edad_min: 18, edad_max: 34, cinta_maxima: 'Negro', orden: 6 },
+  'Veterano': { edad_min: 35, edad_max: 99, cinta_maxima: 'Negro', orden: 7 },
+};
+
+function canonicalizeCategoryName(rawName = '') {
+  const trimmed = String(rawName).trim();
+  const map = {
+    'benjamin': 'Benjamín',
+    'benjamín': 'Benjamín',
+    'alevin': 'Alevín',
+    'alevín': 'Alevín',
+    'infant': 'Infantil',
+    'infantil': 'Infantil',
+    'cadet': 'Cadete',
+    'cadete': 'Cadete',
+    'junior': 'Junior',
+    'júnior': 'Junior',
+    'senior': 'Senior',
+    'veteran': 'Veterano',
+    'veterano': 'Veterano',
+  };
+  return map[trimmed.toLowerCase()] || trimmed;
+}
 
 // Obtener todas las categorías de edad
 router.get('/categorias-edad', async (req, res) => {
@@ -15,7 +44,8 @@ router.get('/categorias-edad', async (req, res) => {
     const { data: categorias, error } = await supabase
       .from('categorias_edad')
       .select('*')
-      .order('orden', { ascending: true });
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true });
 
     if (error) {
       console.error('Error obteniendo categorías de edad:', error);
@@ -35,7 +65,8 @@ router.get('/cintas', async (req, res) => {
     const { data: cintas, error } = await supabase
       .from('cintas')
       .select('*')
-      .order('orden', { ascending: true });
+      .order('orden', { ascending: true })
+      .order('id', { ascending: true });
 
     if (error) {
       console.error('Error obteniendo cintas:', error);
@@ -49,20 +80,27 @@ router.get('/cintas', async (req, res) => {
   }
 });
 
-// Obtener todos los niveles (devuelve categorias_old_backup con nivel y cinta)
+// Obtener todos los niveles (unificado sobre categorias_edad real)
 router.get('/', async (req, res) => {
   try {
-    const { data: niveles, error } = await supabase
-      .from('categorias_old_backup')
+    const { data: categorias, error } = await supabase
+      .from('categorias_edad')
       .select('*')
+      .order('orden', { ascending: true })
       .order('id', { ascending: true });
 
     if (error) {
-      console.error('Error obteniendo niveles:', error);
+      console.error('Error obteniendo categorías:', error);
       return res.status(500).json({ error: 'Error interno del servidor', details: error.message });
     }
 
-    res.json(niveles || []);
+    const nivelesUnificados = (categorias || []).map((cat) => ({
+      ...cat,
+      nivel: cat.nombre,
+      cinta: cat.cinta_maxima || null,
+    }));
+
+    res.json(nivelesUnificados);
   } catch (error) {
     console.error('Error obteniendo niveles:', error);
     res.status(500).json({ error: 'Error interno del servidor', details: error.message });
@@ -113,24 +151,28 @@ router.get('/cintas/:id', async (req, res) => {
   }
 });
 
-// Obtener un nivel por ID (de categorias_old_backup)
+// Obtener una categoría/nivel por ID (unificado sobre categorias_edad)
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     
-    const { data: nivel, error: nivelError } = await supabase
-      .from('categorias_old_backup')
+    const { data: categoria, error: catError } = await supabase
+      .from('categorias_edad')
       .select('*')
       .eq('id', id)
       .single();
 
-    if (nivelError || !nivel) {
-      return res.status(404).json({ error: 'Nivel no encontrado' });
+    if (catError || !categoria) {
+      return res.status(404).json({ error: 'Categoría no encontrada' });
     }
 
-    res.json(nivel);
+    res.json({
+      ...categoria,
+      nivel: categoria.nombre,
+      cinta: categoria.cinta_maxima || null,
+    });
   } catch (error) {
-    console.error('Error obteniendo nivel:', error);
+    console.error('Error obteniendo categoría:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -147,16 +189,24 @@ router.post('/categorias-edad', requireRole(ACADEMIC_ROLES), [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { nombre, edad_min, edad_max, precio_mensualidad, orden } = req.body;
+    const nombreCanonico = canonicalizeCategoryName(req.body.nombre);
+    const { edad_min, edad_max, precio_mensualidad, cinta_maxima, orden } = req.body;
+
+    if (Number(edad_max) < Number(edad_min)) {
+      return res.status(400).json({ error: 'La edad máxima debe ser mayor o igual a la edad mínima' });
+    }
     
+    const defaults = DEFAULT_CATEGORY_META[nombreCanonico] || {};
+
     const { data: categoria, error: insertError } = await supabase
       .from('categorias_edad')
       .insert({
-        nombre,
-        edad_min,
-        edad_max,
-        precio_mensualidad: precio_mensualidad || null,
-        orden: orden || 99
+        nombre: nombreCanonico,
+        edad_min: Number(edad_min),
+        edad_max: Number(edad_max),
+        precio_mensualidad: precio_mensualidad !== undefined && precio_mensualidad !== null ? Number(precio_mensualidad) : 50,
+        cinta_maxima: cinta_maxima || defaults.cinta_maxima || null,
+        orden: orden || defaults.orden || 99
       })
       .select()
       .single();
@@ -191,12 +241,12 @@ router.post('/cintas', requireRole(ACADEMIC_ROLES), [
     const { data: cinta, error: insertError } = await supabase
       .from('cintas')
       .insert({
-        nombre,
-        nombre_en: nombre_en || null,
+        nombre: String(nombre).trim(),
+        nombre_en: nombre_en ? String(nombre_en).trim() : null,
         color_hex: color_hex || '#FFFFFF',
-        orden: orden || 99,
+        orden: orden ? Number(orden) : 99,
         es_dan: Boolean(es_dan),
-        nivel_dan: nivel_dan || null
+        nivel_dan: es_dan && nivel_dan ? Number(nivel_dan) : null
       })
       .select()
       .single();
@@ -216,43 +266,49 @@ router.post('/cintas', requireRole(ACADEMIC_ROLES), [
   }
 });
 
-// Crear nuevo nivel (crea en categorias_old_backup)
+// Crear categoría por ruta raíz (unificado en categorias_edad)
 router.post('/', requireRole(ACADEMIC_ROLES), [
-  body('nombre').notEmpty().withMessage('Nombre del nivel es requerido')
+  body('nombre').notEmpty().withMessage('Nombre de la categoría es requerido')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      console.log('Errores de validación:', errors.array());
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { nombre, color, precio_mensualidad } = req.body;
-    
-    console.log('Creando nivel en categorias_old_backup:', { nombre, color, precio_mensualidad });
+    const nombreCanonico = canonicalizeCategoryName(req.body.nombre);
+    const defaults = DEFAULT_CATEGORY_META[nombreCanonico] || { edad_min: 6, edad_max: 99, cinta_maxima: 'Negro', orden: 99 };
+    const edadMin = req.body.edad_min !== undefined ? Number(req.body.edad_min) : defaults.edad_min;
+    const edadMax = req.body.edad_max !== undefined ? Number(req.body.edad_max) : defaults.edad_max;
+    const cintaMaxima = req.body.cinta_maxima || defaults.cinta_maxima || null;
+    const precioMensualidad = req.body.precio_mensualidad !== undefined && req.body.precio_mensualidad !== null
+      ? Number(req.body.precio_mensualidad)
+      : 50;
 
-    // Crear en categorias_old_backup con nivel y cinta
-    const { data: nivel, error: insertError } = await supabase
-      .from('categorias_old_backup')
+    const { data: categoria, error: insertError } = await supabase
+      .from('categorias_edad')
       .insert({
-        nivel: nombre,
-        cinta: color || null,
-        precio_mensualidad: precio_mensualidad || null
+        nombre: nombreCanonico,
+        edad_min: edadMin,
+        edad_max: edadMax,
+        cinta_maxima: cintaMaxima,
+        precio_mensualidad: precioMensualidad,
+        orden: req.body.orden || defaults.orden || 99
       })
       .select()
       .single();
     
     if (insertError) {
-      console.error('Error creando nivel:', insertError);
+      console.error('Error creando categoría:', insertError);
       return res.status(500).json({ error: 'Error interno del servidor', details: insertError.message });
     }
     
     res.status(201).json({ 
-      id: nivel.id, 
-      message: 'Nivel creado exitosamente' 
+      id: categoria.id, 
+      message: 'Categoría creada exitosamente' 
     });
   } catch (error) {
-    console.error('Error creando nivel:', error);
+    console.error('Error creando categoría:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -270,17 +326,25 @@ router.put('/categorias-edad/:id', requireRole(ACADEMIC_ROLES), [
     }
 
     const { id } = req.params;
-    const { nombre, edad_min, edad_max, precio_mensualidad, orden } = req.body;
+    const nombreCanonico = canonicalizeCategoryName(req.body.nombre);
+    const { edad_min, edad_max, precio_mensualidad, cinta_maxima, orden } = req.body;
+
+    if (Number(edad_max) < Number(edad_min)) {
+      return res.status(400).json({ error: 'La edad máxima debe ser mayor o igual a la edad mínima' });
+    }
+
+    const updatePayload = {
+      nombre: nombreCanonico,
+      edad_min: Number(edad_min),
+      edad_max: Number(edad_max),
+      precio_mensualidad: precio_mensualidad !== undefined && precio_mensualidad !== null ? Number(precio_mensualidad) : 50,
+    };
+    if (cinta_maxima !== undefined) updatePayload.cinta_maxima = cinta_maxima || null;
+    if (orden !== undefined) updatePayload.orden = Number(orden) || 99;
 
     const { error: updateError } = await supabase
       .from('categorias_edad')
-      .update({
-        nombre,
-        edad_min,
-        edad_max,
-        precio_mensualidad: precio_mensualidad || null,
-        orden: orden || 99
-      })
+      .update(updatePayload)
       .eq('id', id);
 
     if (updateError) {
@@ -311,12 +375,12 @@ router.put('/cintas/:id', requireRole(ACADEMIC_ROLES), [
     const { error: updateError } = await supabase
       .from('cintas')
       .update({
-        nombre,
-        nombre_en: nombre_en || null,
+        nombre: String(nombre).trim(),
+        nombre_en: nombre_en ? String(nombre_en).trim() : null,
         color_hex: color_hex || '#FFFFFF',
-        orden: orden || 99,
+        orden: orden ? Number(orden) : 99,
         es_dan: Boolean(es_dan),
-        nivel_dan: nivel_dan || null
+        nivel_dan: es_dan && nivel_dan ? Number(nivel_dan) : null
       })
       .eq('id', id);
 
@@ -332,9 +396,9 @@ router.put('/cintas/:id', requireRole(ACADEMIC_ROLES), [
   }
 });
 
-// Actualizar nivel (en categorias_old_backup)
+// Actualizar categoría por ruta raíz (unificado en categorias_edad)
 router.put('/:id', requireRole(ACADEMIC_ROLES), [
-  body('nombre').notEmpty().withMessage('Nombre del nivel es requerido')
+  body('nombre').optional().notEmpty().withMessage('Nombre de la categoría no puede estar vacío')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -343,25 +407,31 @@ router.put('/:id', requireRole(ACADEMIC_ROLES), [
     }
 
     const { id } = req.params;
-    const { nombre, color, precio_mensualidad } = req.body;
+    const { nombre, edad_min, edad_max, cinta_maxima, precio_mensualidad, orden } = req.body;
+
+    const updatePayload = {};
+    if (nombre !== undefined) updatePayload.nombre = canonicalizeCategoryName(nombre);
+    if (edad_min !== undefined) updatePayload.edad_min = Number(edad_min);
+    if (edad_max !== undefined) updatePayload.edad_max = Number(edad_max);
+    if (cinta_maxima !== undefined) updatePayload.cinta_maxima = cinta_maxima || null;
+    if (precio_mensualidad !== undefined) {
+      updatePayload.precio_mensualidad = precio_mensualidad !== null ? Number(precio_mensualidad) : null;
+    }
+    if (orden !== undefined) updatePayload.orden = Number(orden) || 99;
 
     const { error: updateError } = await supabase
-      .from('categorias_old_backup')
-      .update({
-        nivel: nombre,
-        cinta: color || null,
-        precio_mensualidad: precio_mensualidad || null
-      })
+      .from('categorias_edad')
+      .update(updatePayload)
       .eq('id', id);
 
     if (updateError) {
-      console.error('Error actualizando nivel:', updateError);
+      console.error('Error actualizando categoría:', updateError);
       return res.status(500).json({ error: 'Error interno del servidor', details: updateError.message });
     }
 
-    res.json({ message: 'Nivel actualizado exitosamente' });
+    res.json({ message: 'Categoría actualizada exitosamente' });
   } catch (error) {
-    console.error('Error actualizando nivel:', error);
+    console.error('Error actualizando categoría:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });
@@ -371,7 +441,6 @@ router.delete('/categorias-edad/:id', requireRole(ADMIN_ONLY), async (req, res) 
   try {
     const { id } = req.params;
 
-    // Verificar si hay alumnos usando esta categoría
     const { count, error: countError } = await supabase
       .from('alumno')
       .select('*', { count: 'exact', head: true })
@@ -382,7 +451,7 @@ router.delete('/categorias-edad/:id', requireRole(ADMIN_ONLY), async (req, res) 
       return res.status(500).json({ error: 'Error interno del servidor' });
     }
 
-    if (count > 0) {
+    if ((count || 0) > 0) {
       return res.status(400).json({ 
         error: 'No se puede eliminar la categoría porque hay alumnos asignados' 
       });
@@ -410,7 +479,6 @@ router.delete('/cintas/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Verificar si hay alumnos usando esta cinta
     const { count, error: countError } = await supabase
       .from('alumno')
       .select('*', { count: 'exact', head: true })
@@ -421,7 +489,7 @@ router.delete('/cintas/:id', requireRole(ADMIN_ONLY), async (req, res) => {
       return res.status(500).json({ error: 'Error interno del servidor' });
     }
 
-    if (count > 0) {
+    if ((count || 0) > 0) {
       return res.status(400).json({ 
         error: 'No se puede eliminar la cinta porque hay alumnos asignados' 
       });
@@ -444,29 +512,40 @@ router.delete('/cintas/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   }
 });
 
-// Eliminar nivel (de categorias_old_backup)
+// Eliminar categoría por ruta raíz (unificado en categorias_edad)
 router.delete('/:id', requireRole(ADMIN_ONLY), async (req, res) => {
   try {
     const { id } = req.params;
 
-    // Nota: id_nivel ya no se usa en alumnos, se eliminó esa columna. 
-    // categorias_old_backup es una tabla de respaldo/legacy, 
-    // pero aún puede ser referenciada en algunas vistas. 
-    // Permitir eliminación ya que no hay dependencias críticas.
+    const { count, error: countError } = await supabase
+      .from('alumno')
+      .select('*', { count: 'exact', head: true })
+      .eq('id_categoria_edad', id);
+
+    if (countError) {
+      console.error('Error verificando alumnos:', countError);
+      return res.status(500).json({ error: 'Error interno del servidor' });
+    }
+
+    if ((count || 0) > 0) {
+      return res.status(400).json({
+        error: 'No se puede eliminar la categoría porque hay alumnos asignados'
+      });
+    }
 
     const { error: deleteError } = await supabase
-      .from('categorias_old_backup')
+      .from('categorias_edad')
       .delete()
       .eq('id', id);
 
     if (deleteError) {
-      console.error('Error eliminando nivel:', deleteError);
+      console.error('Error eliminando categoría:', deleteError);
       return res.status(500).json({ error: 'Error interno del servidor', details: deleteError.message });
     }
 
-    res.json({ message: 'Nivel eliminado exitosamente' });
+    res.json({ message: 'Categoría eliminada exitosamente' });
   } catch (error) {
-    console.error('Error eliminando nivel:', error);
+    console.error('Error eliminando categoría:', error);
     res.status(500).json({ error: 'Error interno del servidor' });
   }
 });

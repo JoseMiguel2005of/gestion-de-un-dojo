@@ -36,12 +36,12 @@ export default function Reportes() {
     try {
       const [alumnos, niveles, evaluaciones, representantes] = await Promise.all([
         apiClient.getAlumnos(),
-        apiClient.getNiveles(),
+        apiClient.getCategoriasEdad(),
         apiClient.getEvaluaciones(),
         apiClient.getRepresentantes(),
       ]);
 
-      const alumnosActivos = alumnos.filter(alumno => alumno.estado === 1);
+      const alumnosActivos = alumnos.filter(alumno => Boolean(alumno.estado));
 
       setStats({
         totalAlumnos: alumnos.length || 0,

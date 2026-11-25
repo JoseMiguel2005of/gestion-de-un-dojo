@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -7,48 +8,25 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
-import { useState, useEffect, useMemo } from "react";
-import { Info } from "lucide-react";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Loader2 } from "lucide-react";
+import { useLanguage, translateBelt } from "@/hooks/useLanguage";
+import { CINTAS_CANONICAS } from "./NivelForm";
 
-const CATEGORIAS_DISPONIBLES = [
-  "Benjamín",
-  "Alevín",
-  "Infantil",
-  "Cadete",
-  "Júnior",
-  "Senior",
-  "Veterano"
-];
+const nivelEditSchema = z
+  .object({
+    nombre: z.string().min(2, "El nombre es requerido"),
+    edad_min: z.coerce.number().int().min(0, "Edad mínima inválida"),
+    edad_max: z.coerce.number().int().min(0, "Edad máxima inválida"),
+    cinta_maxima: z.string().optional(),
+    precio_mensualidad: z.coerce.number().min(0, "El precio debe ser mayor o igual a 0"),
+    orden: z.coerce.number().int().min(1).default(99),
+  })
+  .refine((d) => d.edad_max >= d.edad_min, {
+    path: ["edad_max"],
+    message: "La edad máxima debe ser mayor o igual a la edad mínima",
+  });
 
-const COLORES_JUDO = [
-  { value: "#FFFFFF", label: "Blanco", orden: 1 },
-  { value: "#FFD700", label: "Amarillo", orden: 2 },
-  { value: "#FFA500", label: "Naranja", orden: 3 },
-  { value: "#008000", label: "Verde", orden: 4 },
-  { value: "#0000FF", label: "Azul", orden: 5 },
-  { value: "#8B4513", label: "Marrón", orden: 6 },
-  { value: "#000000", label: "Negro", orden: 7 },
-];
-
-// Mapeo de cintas máximas por categoría (según el sistema venezolano)
-const CINTAS_MAXIMAS_POR_CATEGORIA: Record<string, string> = {
-  "Benjamín": "Naranja",
-  "Alevín": "Verde",
-  "Infantil": "Azul",
-  "Cadete": "Marrón",
-  "Júnior": "Negro",
-  "Senior": "Negro",
-  "Veterano": "Negro"
-};
-
-const nivelSchema = z.object({
-  nombre: z.string().min(1, "El nombre es requerido"),
-  color: z.string().optional(),
-  precio_mensualidad: z.number().min(0, "El precio debe ser mayor o igual a 0").optional(),
-});
-
-type NivelFormData = z.infer<typeof nivelSchema>;
+type NivelEditFormData = z.infer<typeof nivelEditSchema>;
 
 interface NivelEditFormProps {
   nivelId: string;
@@ -56,6 +34,7 @@ interface NivelEditFormProps {
 }
 
 export function NivelEditForm({ nivelId, onSuccess }: NivelEditFormProps) {
+  const { isEnglish } = useLanguage();
   const [loading, setLoading] = useState(false);
 
   const {
@@ -64,58 +43,50 @@ export function NivelEditForm({ nivelId, onSuccess }: NivelEditFormProps) {
     formState: { errors },
     setValue,
     watch,
-  } = useForm<NivelFormData>({
-    resolver: zodResolver(nivelSchema),
+  } = useForm<NivelEditFormData>({
+    resolver: zodResolver(nivelEditSchema),
   });
 
-  const selectedColor = watch("color");
-  const selectedNombre = watch("nombre");
-
-  // Filtrar colores permitidos según la categoría seleccionada
-  const coloresPermitidos = useMemo(() => {
-    if (!selectedNombre) return [];
-
-    const cintaMaxima = CINTAS_MAXIMAS_POR_CATEGORIA[selectedNombre];
-    if (!cintaMaxima) return COLORES_JUDO;
-
-    const ordenMaximo = COLORES_JUDO.find(c => c.label === cintaMaxima)?.orden || 7;
-    return COLORES_JUDO.filter(c => c.orden <= ordenMaximo);
-  }, [selectedNombre]);
+  const selectedCintaMax = watch("cinta_maxima");
 
   useEffect(() => {
-    fetchNivel();
-  }, [nivelId]);
-
-  const fetchNivel = async () => {
-    try {
-      const data = await apiClient.getNivel(nivelId);
-
-      if (data) {
-        setValue("nombre", data.nivel || data.nombre);
-        setValue("color", data.cinta || data.color || "");
-        setValue("precio_mensualidad", data.precio_mensualidad || null);
+    const fetchCategoria = async () => {
+      try {
+        const data = await apiClient.getCategoriaEdad(nivelId);
+        if (data) {
+          setValue("nombre", data.nombre || "");
+          setValue("edad_min", Number(data.edad_min ?? 6));
+          setValue("edad_max", Number(data.edad_max ?? 99));
+          setValue("cinta_maxima", data.cinta_maxima || "Negro");
+          setValue("precio_mensualidad", Number(data.precio_mensualidad ?? 50));
+          setValue("orden", Number(data.orden ?? 99));
+        }
+      } catch (error: any) {
+        toast({
+          title: "Error",
+          description: "No se pudieron cargar los datos de la categoría",
+          variant: "destructive",
+        });
       }
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: "No se pudieron cargar los datos",
-        variant: "destructive",
-      });
-    }
-  };
+    };
+    fetchCategoria();
+  }, [nivelId, setValue]);
 
-  const onSubmit = async (data: NivelFormData) => {
+  const onSubmit = async (data: NivelEditFormData) => {
     setLoading(true);
     try {
-      await apiClient.updateNivel(nivelId, {
+      await apiClient.updateCategoriaEdad(nivelId, {
         nombre: data.nombre,
-        color: data.color || null,
-        precio_mensualidad: data.precio_mensualidad || null,
+        edad_min: data.edad_min,
+        edad_max: data.edad_max,
+        cinta_maxima: data.cinta_maxima || null,
+        precio_mensualidad: data.precio_mensualidad,
+        orden: data.orden,
       });
 
       toast({
-        title: "Éxito",
-        description: "Categoría actualizada correctamente",
+        title: isEnglish ? "Success" : "Éxito",
+        description: isEnglish ? "Category updated successfully" : "Categoría actualizada correctamente",
       });
       onSuccess();
     } catch (error: any) {
@@ -131,92 +102,63 @@ export function NivelEditForm({ nivelId, onSuccess }: NivelEditFormProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div>
-        <Label htmlFor="nombre">Nombre de la Categoría *</Label>
-        <Select onValueChange={(value) => setValue("nombre", value)} value={selectedNombre}>
-          <SelectTrigger>
-            <SelectValue placeholder="Selecciona una categoría" />
-          </SelectTrigger>
-          <SelectContent>
-            {CATEGORIAS_DISPONIBLES.map((categoria) => (
-              <SelectItem key={categoria} value={categoria}>
-                {categoria}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div className="space-y-2">
+        <Label htmlFor="edit-nombre">{isEnglish ? "Category Name *" : "Nombre de la Categoría *"}</Label>
+        <Input id="edit-nombre" {...register("nombre")} />
         {errors.nombre && <p className="text-sm text-destructive">{errors.nombre.message}</p>}
       </div>
 
-      <div>
-        <Label htmlFor="color">Color de Cinta</Label>
-        <Select 
-          onValueChange={(value) => setValue("color", value)} 
-          value={selectedColor}
-          disabled={!selectedNombre}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={
-              !selectedNombre 
-                ? "Primero selecciona una categoría" 
-                : "Selecciona un color"
-            }>
-              {selectedColor && (
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-4 h-4 rounded border" 
-                    style={{ backgroundColor: selectedColor }}
-                  />
-                  <span>{COLORES_JUDO.find(c => c.value === selectedColor)?.label}</span>
-                </div>
-              )}
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {coloresPermitidos.map((color) => (
-              <SelectItem key={color.value} value={color.value}>
-                <div className="flex items-center gap-2">
-                  <div 
-                    className="w-4 h-4 rounded border" 
-                    style={{ backgroundColor: color.value }}
-                  />
-                  <span>{color.label}</span>
-                </div>
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {selectedNombre && (
-          <Alert className="mt-2">
-            <Info className="h-4 w-4" />
-            <AlertDescription className="text-xs">
-              Categoría <strong>{selectedNombre}</strong>: Cinta máxima permitida es <strong>{CINTAS_MAXIMAS_POR_CATEGORIA[selectedNombre]}</strong>
-            </AlertDescription>
-          </Alert>
-        )}
-        {errors.color && <p className="text-sm text-destructive">{errors.color.message}</p>}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="edit-edad-min">{isEnglish ? "Minimum Age *" : "Edad Mínima *"}</Label>
+          <Input id="edit-edad-min" type="number" min="0" max="100" {...register("edad_min")} />
+          {errors.edad_min && <p className="text-sm text-destructive">{errors.edad_min.message}</p>}
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="edit-edad-max">{isEnglish ? "Maximum Age *" : "Edad Máxima *"}</Label>
+          <Input id="edit-edad-max" type="number" min="0" max="120" {...register("edad_max")} />
+          {errors.edad_max && <p className="text-sm text-destructive">{errors.edad_max.message}</p>}
+        </div>
       </div>
 
-      <div>
-        <Label htmlFor="precio_mensualidad">Precio de Mensualidad ($)</Label>
-        <Input
-          id="precio_mensualidad"
-          type="number"
-          step="0.01"
-          min="0"
-          placeholder="Ej: 45.00"
-          {...register("precio_mensualidad", { valueAsNumber: true })}
-        />
-        <p className="text-xs text-muted-foreground mt-1">
-          Precio mensual para esta categoría. Dejar vacío para usar el precio base del sistema.
-        </p>
-        {errors.precio_mensualidad && (
-          <p className="text-sm text-destructive">{errors.precio_mensualidad.message}</p>
-        )}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label>{isEnglish ? "Maximum Allowed Belt" : "Cinta Máxima Permitida"}</Label>
+          <Select
+            value={selectedCintaMax || "Negro"}
+            onValueChange={(val) => setValue("cinta_maxima", val)}
+          >
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {CINTAS_CANONICAS.map((cinta) => (
+                <SelectItem key={cinta.nombre} value={cinta.nombre}>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-3.5 h-3.5 rounded border"
+                      style={{ backgroundColor: cinta.color_hex }}
+                    />
+                    <span>{translateBelt(cinta.nombre, isEnglish)}</span>
+                  </div>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="edit-precio">{isEnglish ? "Monthly Fee (USD$) *" : "Mensualidad (USD$) *"}</Label>
+          <Input id="edit-precio" type="number" step="0.01" min="0" {...register("precio_mensualidad")} />
+          {errors.precio_mensualidad && (
+            <p className="text-sm text-destructive">{errors.precio_mensualidad.message}</p>
+          )}
+        </div>
       </div>
 
       <Button type="submit" disabled={loading} className="w-full">
-        {loading ? "Guardando..." : "Actualizar Categoría"}
+        {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+        {isEnglish ? "Update Category" : "Actualizar Categoría"}
       </Button>
     </form>
   );

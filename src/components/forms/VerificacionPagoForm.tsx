@@ -8,8 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "@/hooks/use-toast";
-import { Loader2 } from "lucide-react";
-import { useLanguage, getTranslation } from "@/hooks/useLanguage";
+import { Loader2, Copy, Check, Upload, Clock } from "lucide-react";
+import { useLanguage } from "@/hooks/useLanguage";
 
 const BANCOS_VENEZUELA = [
   "Banco de Venezuela",
@@ -47,15 +47,16 @@ const BANCOS_ESTADOS_UNIDOS = [
   "Regions Bank",
   "Fifth Third Bank",
   "KeyBank",
-  "SunTrust Bank",
-  "BB&T Bank",
-  "Comerica Bank",
-  "Huntington Bank",
-  "M&T Bank",
-  "First National Bank",
-  "BMO Harris Bank",
+  "PNC / Zelle",
   "Citizens Bank",
 ];
+
+function getLocalDateStr(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
 
 type VerificacionPagoFormData = {
   banco_origen: string;
@@ -71,79 +72,97 @@ interface VerificacionPagoFormProps {
   montoPagar: number;
   onSuccess: () => void;
   moneda?: string;
-  alumnoId?: number; // ID del alumno para recalcular precio con descuento
+  alumnoId?: number;
 }
 
-export function VerificacionPagoForm({ montoPagar, onSuccess, moneda, alumnoId }: VerificacionPagoFormProps) {
-  const [paisConfiguracion, setPaisConfiguracion] = useState<string>('venezuela');
+export function VerificacionPagoForm({ montoPagar, onSuccess, alumnoId }: VerificacionPagoFormProps) {
+  const { isEnglish } = useLanguage();
+  const [paisConfiguracion, setPaisConfiguracion] = useState<string>("venezuela");
+  const [datosBancarios, setDatosBancarios] = useState<string>("");
+  const [tasaCambio, setTasaCambio] = useState<number>(220);
+  const [monedaSistema, setMonedaSistema] = useState<string>("USD$");
+  const [copiado, setCopiado] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [esPagoAdelantado, setEsPagoAdelantado] = useState(false);
   const [montoConDescuento, setMontoConDescuento] = useState(montoPagar);
-  const [descuentoInfo, setDescuentoInfo] = useState<{ porcentaje: number; precioOriginal: number; precioFinal: number } | null>(null);
-  const { isEnglish } = useLanguage();
+  const [descuentoInfo, setDescuentoInfo] = useState<{
+    porcentaje: number;
+    precioOriginal: number;
+    precioFinal: number;
+  } | null>(null);
+  const [comprobanteDataUrl, setComprobanteDataUrl] = useState<string | null>(null);
+  const [comprobanteNombre, setComprobanteNombre] = useState<string>("");
 
-  useEffect(() => {
-    // Cargar configuración de país
-    const cargarConfigPais = async () => {
-      try {
-        const config = await apiClient.getConfigPagos();
-        setPaisConfiguracion(config.pais_configuracion || 'venezuela');
-      } catch (error) {
-        console.error('Error cargando configuración:', error);
-      }
-    };
-    cargarConfigPais();
+  const todayStr = useMemo(() => getLocalDateStr(new Date()), []);
+  const minDateStr = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() - 30);
+    return getLocalDateStr(d);
   }, []);
 
-  // Crear esquema de validación dinámico basado en el país de configuración
+  useEffect(() => {
+    const cargarConfig = async () => {
+      try {
+        const config = await apiClient.getConfigPagos();
+        setPaisConfiguracion(config.pais_configuracion || "venezuela");
+        setDatosBancarios(config.datos_bancarios || "");
+        setTasaCambio(Number(config.tipo_cambio_usd_bs) || 220);
+        setMonedaSistema(config.moneda || "USD$");
+      } catch (error) {
+        console.error("Error cargando configuración de pagos:", error);
+      }
+    };
+    cargarConfig();
+  }, []);
+
   const validationSchema = useMemo(() => {
     return z.object({
-      banco_origen: z.string().min(1, isEnglish ? "Select the bank" : "Seleccione el banco"),
-      referencia: z.string()
-        .min(4, isEnglish ? "Reference must have at least 4 characters" : "La referencia debe tener al menos 4 caracteres")
-        .max(20, isEnglish ? "Reference cannot exceed 20 characters" : "La referencia no puede exceder 20 caracteres")
+      metodo_pago: z.enum(["transferencia", "pago_movil"], {
+        required_error: isEnglish ? "Select payment method" : "Seleccione el método de pago",
+      }),
+      banco_origen: z.string().min(1, isEnglish ? "Select the bank" : "Seleccione el banco de origen"),
+      referencia: z
+        .string()
+        .min(4, isEnglish ? "Reference must have at least 4 digits" : "La referencia debe tener al menos 4 dígitos")
+        .max(20, isEnglish ? "Reference cannot exceed 20 digits" : "La referencia no puede exceder 20 dígitos")
         .regex(/^[0-9]+$/, isEnglish ? "Reference can only contain numbers" : "La referencia solo puede contener números"),
-      cedula_titular: z.string()
-        .min(1, isEnglish ? "ID is required" : "El ID es requerido")
-        .refine((val) => {
-          if (paisConfiguracion === 'usa') {
-            // Validación para formato estadounidense (SSN o ID)
-            return /^\d{3}-?\d{2}-?\d{4}$|^\d{9}$/.test(val);
-          } else {
-            // Validación para formato venezolano
-            return /^[VvEeJjGgPp]-?\d{7,8}$/.test(val);
-          }
-        }, paisConfiguracion === 'usa' ? "Invalid ID format (e.g: 123-45-6789 or 123456789)" : "Formato de cédula inválido (ej: V-12345678 o V12345678)"),
-      telefono_cuenta: z.string()
+      cedula_titular: z
+        .string()
+        .min(1, isEnglish ? "Holder ID is required" : "La cédula/ID del titular es requerida")
+        .refine(
+          (val) =>
+            paisConfiguracion === "usa"
+              ? /^\d{3}-?\d{2}-?\d{4}$|^\d{6,12}$/.test(val.trim())
+              : /^[VvEeJjGgPp]-?\d{6,9}$/.test(val.trim()),
+          paisConfiguracion === "usa"
+            ? "Invalid ID format (e.g. 123-45-6789)"
+            : "Formato inválido (ej: V-12345678)"
+        ),
+      telefono_cuenta: z
+        .string()
         .min(1, isEnglish ? "Phone is required" : "El teléfono es requerido")
-        .refine((val) => {
-          if (paisConfiguracion === 'usa') {
-            // Validación para formato estadounidense
-            return /^\(\d{3}\)\s?\d{3}-?\d{4}$|^\d{3}-?\d{3}-?\d{4}$|^\d{10}$/.test(val);
-          } else {
-            // Validación para formato venezolano
-            return /^0\d{3}-?\d{7}$/.test(val);
-          }
-        }, paisConfiguracion === 'usa' ? "Invalid phone format (e.g: (555) 123-4567 or 555-123-4567)" : "Formato de teléfono inválido (ej: 04121234567 o 0412-1234567)"),
-      fecha_transferencia: z.string()
+        .refine(
+          (val) =>
+            paisConfiguracion === "usa"
+              ? /^\(\d{3}\)\s?\d{3}-?\d{4}$|^\d{3}-?\d{3}-?\d{4}$|^\d{10}$/.test(val.trim())
+              : /^0\d{3}-?\d{7}$/.test(val.trim()),
+          paisConfiguracion === "usa"
+            ? "Invalid phone format (e.g. 555-123-4567)"
+            : "Formato inválido (ej: 04121234567)"
+        ),
+      fecha_transferencia: z
+        .string()
         .min(1, isEnglish ? "Date is required" : "La fecha es requerida")
-        .refine((date) => {
-          const transferDate = new Date(date);
-          const today = new Date();
-          const maxDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-          const minDate = new Date(today.getFullYear(), today.getMonth() - 1, today.getDate());
-          
-          return transferDate >= minDate && transferDate <= maxDate;
-        }, isEnglish ? "Date must be between last month and today" : "La fecha debe estar entre el mes pasado y hoy"),
-      monto: z.string()
-        .min(1, isEnglish ? "Amount is required" : "El monto es requerido")
-        .refine((val) => {
-          const num = parseFloat(val);
-          return !isNaN(num) && num > 0;
-        }, isEnglish ? "Amount must be a positive number" : "El monto debe ser un número positivo"),
-      metodo_pago: z.enum(["transferencia", "pago_movil"]),
+        .refine(
+          (dateStr) => dateStr >= minDateStr && dateStr <= todayStr,
+          isEnglish
+            ? "Transfer date must be within the last 30 days and not in the future"
+            : "La fecha debe estar dentro de los últimos 30 días y no puede ser futura"
+        ),
+      monto: z.string().min(1),
     });
-  }, [paisConfiguracion, isEnglish]);
+  }, [paisConfiguracion, isEnglish, minDateStr, todayStr]);
 
   const {
     register,
@@ -151,277 +170,154 @@ export function VerificacionPagoForm({ montoPagar, onSuccess, moneda, alumnoId }
     formState: { errors },
     setValue,
     watch,
-    reset,
   } = useForm<VerificacionPagoFormData>({
     resolver: zodResolver(validationSchema),
     defaultValues: {
-      monto: String(montoConDescuento),
-      fecha_transferencia: new Date().toISOString().split('T')[0],
+      monto: String(montoPagar.toFixed(2)),
+      fecha_transferencia: todayStr,
+      metodo_pago: paisConfiguracion === "usa" ? "transferencia" : "pago_movil",
     },
   });
 
   const metodoPago = watch("metodo_pago");
 
-  // Actualizar el resolver cuando cambie el país o el monto
   useEffect(() => {
-    reset({
-      monto: String(montoConDescuento),
-      fecha_transferencia: new Date().toISOString().split('T')[0],
-      metodo_pago: undefined,
-      banco_origen: '',
-      referencia: '',
-      cedula_titular: '',
-      telefono_cuenta: '',
-    });
-  }, [paisConfiguracion, reset, montoConDescuento]);
-
-  // Resetear campos cuando cambie el método de pago
-  useEffect(() => {
-    if (metodoPago) {
-      setValue('banco_origen', '');
-      setValue('referencia', '');
-      setValue('cedula_titular', '');
-      setValue('telefono_cuenta', '');
-    }
-  }, [metodoPago, setValue]);
-
-  useEffect(() => {
-    const verificarPagoExistente = async () => {
+    const verificarEstadoPagos = async () => {
       try {
         const pagos = await apiClient.getPagos();
-        const mesActual = new Date().getMonth() + 1;
-        const anioActual = new Date().getFullYear();
-        
-        // Calcular el mes siguiente para pagos adelantados
-        const proximoMesDate = new Date(anioActual, mesActual, 1);
-        proximoMesDate.setMonth(proximoMesDate.getMonth() + 1);
+        const ahora = new Date();
+        const mesActual = ahora.getMonth() + 1;
+        const anioActual = ahora.getFullYear();
+
+        const proximoMesDate = new Date(anioActual, ahora.getMonth() + 1, 1);
         const proximoMes = proximoMesDate.getMonth() + 1;
         const proximoAnio = proximoMesDate.getFullYear();
-        
-        // Verificar que existe un pago CONFIRMADO del mes actual
-        const pagoConfirmadoMesActual = pagos.find((pago: any) => 
-          pago.mes === mesActual && 
-          pago.anio === anioActual && 
-          pago.estado === 'confirmado'
+
+        const pagoConfirmadoMesActual = pagos.find(
+          (p: any) => p.mes === mesActual && p.anio === anioActual && p.estado === "confirmado"
         );
-        
-        // Verificar si ya existe un pago para el próximo mes
-        const pagoProximoMes = pagos.find((pago: any) => 
-          pago.mes === proximoMes && 
-          pago.anio === proximoAnio
+        const pagoProximoMes = pagos.find(
+          (p: any) =>
+            p.mes === proximoMes &&
+            p.anio === proximoAnio &&
+            p.estado !== "rechazado"
         );
-        
-        // Solo permitir pago adelantado si:
-        // 1. Ya pagó el mes actual (confirmado)
-        // 2. NO existe ya un pago para el próximo mes
-        let esAdelantado = false;
-        if (pagoConfirmadoMesActual && !pagoProximoMes) {
-          esAdelantado = true;
-        } else if (pagoProximoMes) {
-          // Si ya existe un pago para el próximo mes, informar
-          console.warn(`Ya existe un pago para ${proximoMes}/${proximoAnio}:`, pagoProximoMes);
-          esAdelantado = false;
-        } else {
-          esAdelantado = false;
-        }
-        
-        setEsPagoAdelantado(esAdelantado);
-        
-        // Si es pago adelantado y tenemos el ID del alumno, recalcular precio con descuento
-        if (esAdelantado && alumnoId) {
-          try {
-            const precioInfo = await apiClient.getPrecioAlumno(alumnoId.toString(), true);
-            if (precioInfo && precioInfo.precio_final) {
-              setMontoConDescuento(precioInfo.precio_final);
-              // Actualizar el valor del campo monto
-              setValue('monto', String(precioInfo.precio_final));
-              
-              // Guardar información del descuento para mostrarla al usuario
-              if (precioInfo.descuento_pago_adelantado && precioInfo.descuento_pago_adelantado > 0) {
-                setDescuentoInfo({
-                  porcentaje: precioInfo.descuento_pago_adelantado,
-                  precioOriginal: precioInfo.precio_base + (precioInfo.costo_inscripcion || 0),
-                  precioFinal: precioInfo.precio_final
-                });
-              } else {
-                setDescuentoInfo(null);
-              }
+
+        const adelantado = Boolean(pagoConfirmadoMesActual && !pagoProximoMes);
+        setEsPagoAdelantado(adelantado);
+
+        if (adelantado && alumnoId) {
+          const precioInfo = await apiClient.getPrecioAlumno(String(alumnoId), true);
+          if (precioInfo?.precio_final !== undefined) {
+            setMontoConDescuento(Number(precioInfo.precio_final));
+            setValue("monto", Number(precioInfo.precio_final).toFixed(2));
+            if (precioInfo.descuento_pago_adelantado > 0) {
+              setDescuentoInfo({
+                porcentaje: precioInfo.descuento_pago_adelantado,
+                precioOriginal: Number(precioInfo.precio_base) + Number(precioInfo.costo_inscripcion || 0),
+                precioFinal: Number(precioInfo.precio_final),
+              });
             }
-          } catch (error) {
-            console.error('Error obteniendo precio con descuento:', error);
-            setDescuentoInfo(null);
           }
         } else {
           setMontoConDescuento(montoPagar);
+          setValue("monto", montoPagar.toFixed(2));
           setDescuentoInfo(null);
         }
-      } catch (error) {
-        console.error('Error verificando pagos existentes:', error);
-        setEsPagoAdelantado(false);
-        setMontoConDescuento(montoPagar);
+      } catch (err) {
+        console.error("Error consultando historial de pagos:", err);
       }
     };
-
-    verificarPagoExistente();
+    verificarEstadoPagos();
   }, [alumnoId, montoPagar, setValue]);
 
-  const onSubmit = async (data: VerificacionPagoFormData) => {
-    // Si es un pago adelantado, verificar que el usuario ya pagó el mes actual
-    if (esPagoAdelantado) {
-      try {
-        const pagos = await apiClient.getPagos();
-        const mesActual = new Date().getMonth() + 1;
-        const anioActual = new Date().getFullYear();
-        
-        const pagoConfirmadoMesActual = pagos.find((pago: any) => 
-          pago.mes === mesActual && 
-          pago.anio === anioActual && 
-          pago.estado === 'confirmado'
-        );
-        
-        if (!pagoConfirmadoMesActual) {
-          toast({
-            title: isEnglish ? "Error" : "Error",
-            description: isEnglish 
-              ? "You cannot make an advance payment. You must first pay and confirm the current month's payment."
-              : "No puedes realizar un pago adelantado. Debes pagar y confirmar primero el mes actual.",
-            variant: "destructive",
-          });
-          return;
-        }
-      } catch (error) {
-        console.error('Error verificando pago del mes actual:', error);
-        toast({
-          title: isEnglish ? "Error" : "Error",
-          description: isEnglish 
-            ? "Could not verify current month payment. Please try again."
-            : "No se pudo verificar el pago del mes actual. Por favor intenta de nuevo.",
-          variant: "destructive",
-        });
-        return;
-      }
-    }
-    
-    const fechaTransferencia = new Date(data.fecha_transferencia + 'T00:00:00');
-    const hoy = new Date();
-    hoy.setHours(0, 0, 0, 0);
-    
-    const diferenciaDias = Math.floor((hoy.getTime() - fechaTransferencia.getTime()) / (1000 * 60 * 60 * 24));
-    
-    if (diferenciaDias < 0 || diferenciaDias > 1) {
+  const handleCopyDatosBancarios = async () => {
+    if (!datosBancarios) return;
+    try {
+      await navigator.clipboard.writeText(datosBancarios);
+      setCopiado(true);
+      setTimeout(() => setCopiado(false), 2000);
+    } catch {
       toast({
-        title: isEnglish ? "Error" : "Error",
-        description: isEnglish ? "The transfer must have been made today" : "La transferencia debe haber sido realizada el día de hoy",
+        title: isEnglish ? "Could not copy" : "No se pudo copiar",
         variant: "destructive",
       });
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setComprobanteDataUrl(null);
+      setComprobanteNombre("");
       return;
     }
+    if (file.size > 700 * 1024) {
+      toast({
+        title: isEnglish ? "Image too large" : "Imagen demasiado grande",
+        description: isEnglish
+          ? "Maximum receipt size is 700 KB"
+          : "El comprobante no debe superar los 700 KB",
+        variant: "destructive",
+      });
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      setComprobanteDataUrl(String(reader.result));
+      setComprobanteNombre(file.name);
+    };
+    reader.readAsDataURL(file);
+  };
 
+  const onSubmit = async (data: VerificacionPagoFormData) => {
     setLoading(true);
     try {
-      let mesCorrespondiente;
-      let observaciones = "";
-      
-      console.log(`[Frontend] esPagoAdelantado (estado inicial): ${esPagoAdelantado}`);
-      
-      // Verificar nuevamente si debería ser pago adelantado basándose en los pagos existentes
-      const pagosRecientes = await apiClient.getPagos();
-      const mesActual = new Date().getMonth() + 1;
-      const anioActual = new Date().getFullYear();
-      const proximoMesDate = new Date(anioActual, mesActual, 1);
-      proximoMesDate.setMonth(proximoMesDate.getMonth() + 1);
-      const proximoMes = proximoMesDate.getMonth() + 1;
-      const proximoAnio = proximoMesDate.getFullYear();
-      
-      console.log(`[Frontend] Mes actual: ${mesActual}/${anioActual}, Próximo mes: ${proximoMes}/${proximoAnio}`);
-      
-      const pagoConfirmadoMesActual = pagosRecientes.find((pago: any) => 
-        pago.mes === mesActual && 
-        pago.anio === anioActual && 
-        pago.estado === 'confirmado'
-      );
-      const pagoProximoMes = pagosRecientes.find((pago: any) => 
-        pago.mes === proximoMes && 
-        pago.anio === proximoAnio
-      );
-      
-      console.log(`[Frontend] ¿Tiene pago confirmado del mes actual? ${!!pagoConfirmadoMesActual}`);
-      console.log(`[Frontend] ¿Tiene pago del próximo mes? ${!!pagoProximoMes}`);
-      
-      // Si tiene pago confirmado del mes actual y NO tiene pago del próximo mes, DEBE ser pago adelantado
-      let esPagoAdelantadoFinal = false;
-      if (pagoConfirmadoMesActual && !pagoProximoMes) {
-        esPagoAdelantadoFinal = true;
-        console.log(`[Frontend] ✅ FORZANDO pago adelantado: tiene pago del mes actual y NO tiene del próximo`);
-      } else if (esPagoAdelantado) {
-        esPagoAdelantadoFinal = true;
-        console.log(`[Frontend] ✅ Pago adelantado confirmado por estado inicial`);
-      } else {
-        console.log(`[Frontend] ⚠️ NO es pago adelantado`);
+      const targetDate = new Date();
+      if (esPagoAdelantado) {
+        targetDate.setMonth(targetDate.getMonth() + 1);
       }
-      
-      if (esPagoAdelantadoFinal) {
-        const proximoMesCalc = new Date();
-        proximoMesCalc.setMonth(proximoMesCalc.getMonth() + 1);
-        mesCorrespondiente = proximoMesCalc.toLocaleDateString(isEnglish ? 'en-US' : 'es-ES', { month: 'long', year: 'numeric' });
-        observaciones = (isEnglish ? "Advanced payment - " : "Pago adelantado - ") + mesCorrespondiente;
-        console.log(`[Frontend] ✅ Pago adelantado. Mes correspondiente: ${mesCorrespondiente}`);
-        console.log(`[Frontend] Observaciones a enviar: "${observaciones}"`);
-      } else {
-        mesCorrespondiente = new Date().toLocaleDateString(isEnglish ? 'en-US' : 'es-ES', { month: 'long', year: 'numeric' });
-        console.log(`[Frontend] ⚠️ Pago normal. Mes correspondiente: ${mesCorrespondiente}`);
-      }
+      const mesCorrespondiente = targetDate.toLocaleDateString("es-ES", {
+        month: "long",
+        year: "numeric",
+      });
 
-      let metodoPagoTexto = isEnglish ? "Transfer" : "Transferencia";
-      if (data.metodo_pago === "pago_movil") {
-        metodoPagoTexto = isEnglish ? "Mobile Payment" : "Pago Móvil";
-      }
+      const metodoPagoTexto = data.metodo_pago === "pago_movil" ? "Pago Móvil" : "Transferencia";
+      const observaciones = esPagoAdelantado ? `Pago adelantado - ${mesCorrespondiente}` : null;
 
-      // Si es pago adelantado, usar el monto con descuento
-      const montoFinal = esPagoAdelantadoFinal ? montoConDescuento : parseFloat(data.monto);
-
-      const pagoData = {
-        monto: montoFinal,
+      await apiClient.createPago({
+        id_alumno: alumnoId,
+        mes: targetDate.getMonth() + 1,
+        anio: targetDate.getFullYear(),
+        monto: montoConDescuento,
         metodo_pago: metodoPagoTexto,
-        referencia: data.referencia,
+        referencia: data.referencia.trim(),
         banco_origen: data.banco_origen,
-        cedula_titular: data.cedula_titular,
-        telefono_cuenta: data.telefono_cuenta,
+        cedula_titular: data.cedula_titular.trim(),
+        telefono_cuenta: data.telefono_cuenta.trim(),
         fecha_pago: data.fecha_transferencia,
-        estado: "confirmado",
+        estado: "pendiente",
         mes_correspondiente: mesCorrespondiente,
-        observaciones: observaciones,
-      };
-      
-      console.log(`[Frontend] ========== DATOS DEL PAGO ==========`);
-      console.log(`[Frontend] esPagoAdelantado (final): ${esPagoAdelantadoFinal}`);
-      console.log(`[Frontend] mes_correspondiente: "${mesCorrespondiente}"`);
-      console.log(`[Frontend] observaciones: "${observaciones}"`);
-      console.log(`[Frontend] fecha_pago: "${data.fecha_transferencia}"`);
-      console.log(`[Frontend] Datos completos:`, JSON.stringify(pagoData, null, 2));
-      
-      await apiClient.createPago(pagoData);
-
-      const mensaje = esPagoAdelantadoFinal 
-        ? isEnglish 
-          ? `Advance payment confirmed! Your payment has been registered for ${mesCorrespondiente}. Thank you for your anticipation!`
-          : `¡Pago adelantado confirmado! Tu pago ha sido registrado para ${mesCorrespondiente}. ¡Gracias por tu anticipación!`
-        : isEnglish
-          ? "Your payment has been verified and confirmed successfully. Thank you for your timely payment!"
-          : "Tu pago ha sido verificado y confirmado exitosamente. ¡Gracias por tu pago puntual!";
+        comprobante: comprobanteDataUrl,
+        observaciones,
+      });
 
       toast({
-        title: esPagoAdelantado 
-          ? (isEnglish ? "Advance Payment!" : "¡Pago Adelantado!")
-          : (isEnglish ? "Payment Confirmed!" : "¡Pago confirmado!"),
-        description: mensaje,
+        title: isEnglish ? "Payment sent for verification" : "Pago enviado a verificación",
+        description: isEnglish
+          ? "Your payment receipt was recorded as Pending. Administration will confirm it shortly."
+          : "Tu comprobante quedó registrado en estado Pendiente. La administración lo verificará pronto.",
       });
-      
+
       onSuccess();
     } catch (error: any) {
       toast({
-        title: isEnglish ? "Error" : "Error",
-        description: error.message || (isEnglish ? "Could not register the payment" : "No se pudo registrar el pago"),
+        title: "Error",
+        description:
+          error.data?.error ||
+          error.message ||
+          (isEnglish ? "Could not submit payment" : "No se pudo registrar el pago"),
         variant: "destructive",
       });
     } finally {
@@ -429,227 +325,194 @@ export function VerificacionPagoForm({ montoPagar, onSuccess, moneda, alumnoId }
     }
   };
 
+  const equivalenteBs = (montoConDescuento * tasaCambio).toLocaleString("es-VE", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-      <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
-        <h3 className="font-semibold text-green-900 dark:text-green-100 mb-2">
-          ✅ {getTranslation('paymentVerification.automaticVerification', isEnglish)}
-        </h3>
-        <ul className="text-sm text-green-800 dark:text-green-200 space-y-1 list-disc list-inside">
-          <li>{getTranslation('paymentVerification.transferSameDay', isEnglish)}</li>
-          <li>{getTranslation('paymentVerification.ensureCorrectData', isEnglish)}</li>
-          <li>{getTranslation('paymentVerification.automaticConfirmation', isEnglish)}</li>
-        </ul>
-      </div>
-
-      <div className="bg-green-50 dark:bg-green-950/30 border border-green-200 dark:border-green-800 rounded-lg p-4">
-        <p className="text-lg font-semibold text-green-900 dark:text-green-100">
-          {getTranslation('paymentVerification.amountToPay', isEnglish)} <span className="text-2xl">${montoConDescuento.toFixed(2)}</span>
-        </p>
-        {esPagoAdelantado && (
-          <div className="mt-3 p-3 bg-blue-100 dark:bg-blue-900/30 border border-blue-300 dark:border-blue-700 rounded">
-            <p className="text-sm text-blue-800 dark:text-blue-200 font-medium mb-2">
-              💡 <strong>{isEnglish ? "Advance Payment Detected" : "Pago Adelantado Detectado"}</strong>
+      <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg p-3.5">
+        <div className="flex items-start gap-2.5">
+          <Clock className="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 shrink-0" />
+          <div className="text-sm text-amber-900 dark:text-amber-100">
+            <p className="font-semibold">
+              {isEnglish ? "Verification Process" : "Proceso de Verificación Administrativa"}
             </p>
-            <p className="text-sm text-blue-700 dark:text-blue-300 mb-2">
-              {isEnglish 
-                ? "Since you have already paid and confirmed the current month, this payment will be registered for next month."
-                : "Como ya has pagado y confirmado el mes actual, este pago se registrará para el próximo mes."
-              }
+            <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
+              {isEnglish
+                ? "Transfer to the Dojo's official account below, then submit the reference number. Your payment will remain Pending until verified by staff."
+                : "Realiza la operación a los datos bancarios oficiales del Dojo y registra la referencia. El pago quedará en estado Pendiente hasta ser validado por recepción o administración."}
             </p>
-            {descuentoInfo && descuentoInfo.porcentaje > 0 && (
-              <div className="mt-3 p-3 bg-green-100 dark:bg-green-900/40 border border-green-300 dark:border-green-700 rounded">
-                <p className="text-sm font-semibold text-green-900 dark:text-green-100 mb-2">
-                  🎉 {isEnglish ? "Early Payment Discount Applied!" : "¡Descuento por Pago Adelantado Aplicado!"}
-                </p>
-                <div className="space-y-1 text-sm">
-                  <div className="flex justify-between text-green-800 dark:text-green-200">
-                    <span>{isEnglish ? "Original Amount:" : "Monto Original:"}</span>
-                    <span className="line-through">${descuentoInfo.precioOriginal.toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between text-green-800 dark:text-green-200">
-                    <span>{isEnglish ? "Discount:" : "Descuento:"}</span>
-                    <span className="font-semibold text-green-700 dark:text-green-300">-{descuentoInfo.porcentaje}%</span>
-                  </div>
-                  <div className="flex justify-between text-green-900 dark:text-green-100 font-bold text-base pt-1 border-t border-green-300 dark:border-green-700">
-                    <span>{isEnglish ? "Final Amount:" : "Monto Final:"}</span>
-                    <span className="text-green-700 dark:text-green-300">${descuentoInfo.precioFinal.toFixed(2)}</span>
-                  </div>
-                  <p className="text-xs text-green-700 dark:text-green-400 mt-2 italic">
-                    {isEnglish 
-                      ? `You saved $${(descuentoInfo.precioOriginal - descuentoInfo.precioFinal).toFixed(2)}!`
-                      : `¡Ahorraste $${(descuentoInfo.precioOriginal - descuentoInfo.precioFinal).toFixed(2)}!`
-                    }
-                  </p>
-                </div>
-              </div>
-            )}
           </div>
+        </div>
+      </div>
+
+      {datosBancarios && (
+        <div className="bg-muted/60 border border-border rounded-lg p-3.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {isEnglish ? "Dojo Bank Details" : "Datos Bancarios del Dojo"}
+            </span>
+            <Button type="button" variant="outline" size="sm" onClick={handleCopyDatosBancarios} className="h-7 text-xs gap-1.5">
+              {copiado ? <Check className="h-3.5 w-3.5 text-emerald-600" /> : <Copy className="h-3.5 w-3.5" />}
+              {copiado ? (isEnglish ? "Copied" : "Copiado") : isEnglish ? "Copy" : "Copiar"}
+            </Button>
+          </div>
+          <pre className="text-xs whitespace-pre-wrap font-mono text-foreground bg-background p-2.5 rounded border">
+            {datosBancarios}
+          </pre>
+        </div>
+      )}
+
+      <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg p-4">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <span className="text-sm font-medium text-emerald-900 dark:text-emerald-100">
+            {isEnglish ? "Amount to Transfer:" : "Monto a Pagar:"}
+          </span>
+          <div className="text-right">
+            <p className="text-2xl font-bold text-emerald-700 dark:text-emerald-300">
+              {monedaSistema === "BS." ? `Bs. ${equivalenteBs}` : `USD$ ${montoConDescuento.toFixed(2)}`}
+            </p>
+            <p className="text-xs text-emerald-700/80 dark:text-emerald-300/80">
+              {monedaSistema === "BS."
+                ? `Equivalente: USD$ ${montoConDescuento.toFixed(2)} (Tasa: ${tasaCambio})`
+                : `Equivalente: Bs. ${equivalenteBs} (Tasa: ${tasaCambio})`}
+            </p>
+          </div>
+        </div>
+
+        {esPagoAdelantado && (
+          <p className="mt-2 text-xs text-blue-700 dark:text-blue-300 font-medium">
+            {isEnglish
+              ? "Advance payment for next month detected."
+              : "Pago adelantado correspondiente al próximo mes."}
+            {descuentoInfo ? ` (-${descuentoInfo.porcentaje}% aplicado)` : ""}
+          </p>
         )}
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="metodo_pago">{getTranslation('paymentVerification.paymentMethod', isEnglish)}</Label>
-        <Select
-          onValueChange={(value) => setValue("metodo_pago", value as "transferencia" | "pago_movil")}
-          value={watch("metodo_pago")}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={getTranslation('paymentVerification.selectPaymentMethod', isEnglish)} />
-          </SelectTrigger>
-          <SelectContent>
-            {paisConfiguracion === 'usa' ? (
-              <>
-                <SelectItem value="transferencia">{getTranslation('paymentVerification.bankTransfer', isEnglish)}</SelectItem>
-              </>
-            ) : (
-              <>
-                <SelectItem value="pago_movil">{getTranslation('paymentVerification.mobilePayment', isEnglish)}</SelectItem>
-                <SelectItem value="transferencia">{getTranslation('paymentVerification.bankTransfer', isEnglish)}</SelectItem>
-              </>
-            )}
-          </SelectContent>
-        </Select>
-        {errors.metodo_pago && (
-          <p className="text-sm text-destructive">{errors.metodo_pago.message}</p>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        <Label htmlFor="banco_origen">
-          {metodoPago === "pago_movil" 
-            ? (isEnglish ? "Bank from which you make the operation" : "Banco desde donde realiza la operación")
-            : (isEnglish ? "Bank from which you make the transfer" : "Banco desde donde realiza la transferencia")
-          }
-        </Label>
-        <Select
-          onValueChange={(value) => setValue("banco_origen", value)}
-          value={watch("banco_origen")}
-        >
-          <SelectTrigger>
-            <SelectValue placeholder={isEnglish ? "Select your bank" : "Seleccione su banco"} />
-          </SelectTrigger>
-          <SelectContent>
-            {(paisConfiguracion === 'usa' ? BANCOS_ESTADOS_UNIDOS : BANCOS_VENEZUELA).map((banco) => (
-              <SelectItem key={banco} value={banco}>
-                {banco}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {errors.banco_origen && (
-          <p className="text-sm text-destructive">{errors.banco_origen.message}</p>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
-          <Label htmlFor="referencia">
-            {metodoPago === "pago_movil" 
-              ? (isEnglish ? "Mobile Payment Reference" : "Referencia del Pago Móvil")
-              : (isEnglish ? "Payment Reference" : "Referencia del Pago")
-            }
-          </Label>
-          <Input 
-            id="referencia" 
-            {...register("referencia")} 
-            placeholder="123456789"
+          <Label>{isEnglish ? "Payment Method *" : "Método de Pago *"}</Label>
+          <Select
+            value={metodoPago}
+            onValueChange={(value) => setValue("metodo_pago", value as "transferencia" | "pago_movil", { shouldValidate: true })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={isEnglish ? "Select method" : "Seleccionar método"} />
+            </SelectTrigger>
+            <SelectContent>
+              {paisConfiguracion !== "usa" && (
+                <SelectItem value="pago_movil">{isEnglish ? "Mobile Payment (Pago Móvil)" : "Pago Móvil"}</SelectItem>
+              )}
+              <SelectItem value="transferencia">{isEnglish ? "Bank Transfer" : "Transferencia Bancaria"}</SelectItem>
+            </SelectContent>
+          </Select>
+          {errors.metodo_pago && <p className="text-xs text-destructive">{errors.metodo_pago.message}</p>}
+        </div>
+
+        <div className="space-y-2">
+          <Label>{isEnglish ? "Origin Bank *" : "Banco de Origen *"}</Label>
+          <Select
+            value={watch("banco_origen") || ""}
+            onValueChange={(value) => setValue("banco_origen", value, { shouldValidate: true })}
+          >
+            <SelectTrigger>
+              <SelectValue placeholder={isEnglish ? "Select bank" : "Seleccione su banco"} />
+            </SelectTrigger>
+            <SelectContent>
+              {(paisConfiguracion === "usa" ? BANCOS_ESTADOS_UNIDOS : BANCOS_VENEZUELA).map((banco) => (
+                <SelectItem key={banco} value={banco}>
+                  {banco}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {errors.banco_origen && <p className="text-xs text-destructive">{errors.banco_origen.message}</p>}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="referencia">{isEnglish ? "Reference Number *" : "Número de Referencia *"}</Label>
+          <Input
+            id="referencia"
+            {...register("referencia")}
+            placeholder="12345678"
             maxLength={20}
-            pattern="[0-9]+"
-            title="Solo números, entre 4 y 20 dígitos"
             inputMode="numeric"
           />
-          {errors.referencia && (
-            <p className="text-sm text-destructive">{errors.referencia.message}</p>
-          )}
+          {errors.referencia && <p className="text-xs text-destructive">{errors.referencia.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="monto">{getTranslation('paymentVerification.amountPaid', isEnglish)}</Label>
-          <Input 
-            id="monto" 
-            {...register("monto")} 
-            placeholder={String(montoPagar)}
-            type="number"
-            step="0.01"
-            min="0.01"
-            title="Monto fijo según su categoría"
-            readOnly
-            className="cursor-not-allowed"
+          <Label htmlFor="fecha_transferencia">{isEnglish ? "Transfer Date *" : "Fecha de Operación *"}</Label>
+          <Input
+            id="fecha_transferencia"
+            type="date"
+            min={minDateStr}
+            max={todayStr}
+            {...register("fecha_transferencia")}
           />
-          {errors.monto && (
-            <p className="text-sm text-destructive">{errors.monto.message}</p>
+          {errors.fecha_transferencia && (
+            <p className="text-xs text-destructive">{errors.fecha_transferencia.message}</p>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="cedula_titular">
-            {paisConfiguracion === 'usa' 
-              ? getTranslation('paymentVerification.idHolder', isEnglish)
-              : getTranslation('paymentVerification.cedulaHolder', isEnglish)
-            }
+            {paisConfiguracion === "usa"
+              ? isEnglish
+                ? "Account Holder ID *"
+                : "ID del Titular *"
+              : isEnglish
+              ? "Account Holder Cedula *"
+              : "Cédula del Titular *"}
           </Label>
-          <Input 
-            id="cedula_titular" 
-            {...register("cedula_titular")} 
-            placeholder={paisConfiguracion === 'usa' ? "123-45-6789" : "V-12345678"}
-            pattern={paisConfiguracion === 'usa' ? "\\d{3}-?\\d{2}-?\\d{4}" : "[VvEeJjGgPp]-?\\d{7,8}"}
-            title={paisConfiguracion === 'usa' ? "Formato: 123-45-6789 o 123456789 (SSN o ID)" : "Formato: V-12345678 o V12345678 (V, E, J, G o P seguido de 7-8 dígitos)"}
+          <Input
+            id="cedula_titular"
+            {...register("cedula_titular")}
+            placeholder={paisConfiguracion === "usa" ? "123-45-6789" : "V-12345678"}
           />
-          {errors.cedula_titular && (
-            <p className="text-sm text-destructive">{errors.cedula_titular.message}</p>
-          )}
+          {errors.cedula_titular && <p className="text-xs text-destructive">{errors.cedula_titular.message}</p>}
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="telefono_cuenta">
-            {paisConfiguracion === 'usa' 
-              ? getTranslation('paymentVerification.phoneHolder', isEnglish)
-              : getTranslation('paymentVerification.accountPhone', isEnglish)
-            }
-          </Label>
-          <Input 
-            id="telefono_cuenta" 
-            {...register("telefono_cuenta")} 
-            placeholder={paisConfiguracion === 'usa' ? "(555) 123-4567" : "04121234567"}
-            pattern={paisConfiguracion === 'usa' ? "\\(\\d{3}\\)\\s?\\d{3}-?\\d{4}|\\d{3}-?\\d{3}-?\\d{4}" : "0\\d{3}-?\\d{7}"}
-            title={paisConfiguracion === 'usa' ? "Formato: (555) 123-4567 o 555-123-4567" : "Formato: 04121234567 o 0412-1234567 (11 dígitos comenzando con 0)"}
-            inputMode="numeric"
+          <Label htmlFor="telefono_cuenta">{isEnglish ? "Account Phone *" : "Teléfono Asociado *"}</Label>
+          <Input
+            id="telefono_cuenta"
+            {...register("telefono_cuenta")}
+            placeholder={paisConfiguracion === "usa" ? "555-123-4567" : "04121234567"}
           />
-          {errors.telefono_cuenta && (
-            <p className="text-sm text-destructive">{errors.telefono_cuenta.message}</p>
-          )}
+          {errors.telefono_cuenta && <p className="text-xs text-destructive">{errors.telefono_cuenta.message}</p>}
         </div>
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="fecha_transferencia">{getTranslation('paymentVerification.transferDate', isEnglish)}</Label>
-        <Input 
-          id="fecha_transferencia" 
-          type="date"
-          max={new Date().toISOString().split('T')[0]}
-          min={new Date(new Date().getFullYear(), new Date().getMonth() - 1, new Date().getDate()).toISOString().split('T')[0]}
-          {...register("fecha_transferencia")}
-          title={getTranslation('paymentVerification.dateRange', isEnglish)}
+        <Label htmlFor="comprobante_img" className="flex items-center gap-1.5">
+          <Upload className="h-3.5 w-3.5" />
+          {isEnglish ? "Receipt Screenshot (Optional, max 700 KB)" : "Captura del Comprobante (Opcional, máx. 700 KB)"}
+        </Label>
+        <Input
+          id="comprobante_img"
+          type="file"
+          accept="image/*"
+          onChange={handleFileChange}
         />
-        {errors.fecha_transferencia && (
-          <p className="text-sm text-destructive">{errors.fecha_transferencia.message}</p>
+        {comprobanteNombre && (
+          <p className="text-xs text-emerald-600 dark:text-emerald-400">
+            ✓ {comprobanteNombre}
+          </p>
         )}
-        <p className="text-xs text-muted-foreground">
-          {getTranslation('paymentVerification.dateRange', isEnglish)}
-        </p>
       </div>
 
-      <Button type="submit" className="w-full" disabled={loading || !metodoPago}>
+      <Button type="submit" className="w-full" disabled={loading}>
         {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-        {esPagoAdelantado 
-          ? getTranslation('paymentVerification.registerAdvancePayment', isEnglish)
-          : getTranslation('paymentVerification.sendPaymentVerification', isEnglish)
-        }
+        {isEnglish ? "Submit Payment for Verification" : "Enviar Pago para Verificación"}
       </Button>
     </form>
   );
 }
-

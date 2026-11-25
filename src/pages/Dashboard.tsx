@@ -56,7 +56,7 @@ export default function Dashboard() {
       if (hasAdvancedAccess) {
         const [alumnos, niveles, evaluaciones, representantes] = await Promise.all([
           apiClient.getAlumnos(),
-          apiClient.getNiveles(),
+          apiClient.getCategoriasEdad(),
           apiClient.getEvaluaciones(),
           apiClient.getRepresentantes(),
         ]);
