@@ -109,12 +109,11 @@ const blockAccount = async (usuarioId) => {
   const expiresAt = new Date();
   expiresAt.setMinutes(expiresAt.getMinutes() + 30);
   
-  console.log(`   Código de desbloqueo generado: ${unlockCode}`);
-  console.log(`   Código expira en: ${expiresAt.toISOString()}`);
+  console.log(`   Código de desbloqueo generado. Expira en: ${expiresAt.toISOString()}`);
 
   // Bloquear cuenta y guardar código (CRÍTICO - debe completarse)
   console.log(`   Guardando bloqueo en base de datos...`);
-  const { error: blockError, data: blockData } = await supabase
+  const { error: blockError } = await supabase
     .from('account_lock')
     .update({
       bloqueado: true,
@@ -125,17 +124,15 @@ const blockAccount = async (usuarioId) => {
       updated_at: new Date().toISOString()
     })
     .eq('usuario_id', usuarioId)
-    .select();
+    .select('id');
 
   if (blockError) {
-    console.error('❌ ERROR CRÍTICO bloqueando cuenta:', blockError);
-    console.error('   Detalles:', JSON.stringify(blockError, null, 2));
+    console.error('❌ ERROR CRÍTICO bloqueando cuenta:', blockError.message);
     // Lanzar error solo si falla el bloqueo en BD - esto es crítico
     throw new Error(`Error bloqueando cuenta en BD: ${blockError.message}`);
   }
   
   console.log(`✅ Cuenta bloqueada y código guardado en BD`);
-  console.log(`   Datos actualizados:`, blockData);
 
   // SEGUNDO: Intentar obtener email y enviar correo (no crítico)
   let userEmail = null;
@@ -172,8 +169,6 @@ const blockAccount = async (usuarioId) => {
     } catch (emailError) {
       // NO lanzar error aquí - la cuenta ya está bloqueada, que es lo importante
       console.error('⚠️ ADVERTENCIA: No se pudo enviar el correo de desbloqueo:');
-      console.error('   Email del usuario:', userEmail);
-      console.error('   Código generado:', unlockCode);
       console.error('   Error:', emailError.message);
       console.error('   NOTA: La cuenta está bloqueada. El usuario puede solicitar reenvío del código.');
     }

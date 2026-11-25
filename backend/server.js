@@ -1,10 +1,11 @@
+import { envConfig } from './config/env.js';
 import express from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
-import supabase from './utils/supabaseClient.js';  // Importa el cliente de Supabase
+import helmet from 'helmet';
+import supabase from './utils/supabaseClient.js';
 import { verifyEmailConfig } from './utils/emailService.js';
 
-// Importar rutas (mantén tus rutas existentes, pero modifica las que usen DB)
+// Importar rutas
 import authRoutes from './routes/auth.js';
 import alumnosRoutes from './routes/alumnos.js';
 import nivelesRoutes from './routes/niveles.js';
@@ -16,27 +17,32 @@ import pagosRoutes from './routes/pagos.js';
 import horariosRoutes from './routes/horarios.js';
 import backupRoutes from './routes/backup.js';
 
-// Cargar variables de entorno
-dotenv.config();
-
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = envConfig.port;
+
+// Confiar en primer proxy (Vercel / balanceadores) para IPs reales en rate-limit
+app.set('trust proxy', 1);
+
+// Cabeceras de seguridad HTTP
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: 'cross-origin' },
+}));
 
 // Middleware CORS - Permitir tanto el dominio principal como previews de Vercel
 const allowedOrigins = [
-  process.env.FRONTEND_URL || 'http://localhost:8080',
-  process.env.CORS_ORIGIN,
+  envConfig.frontendUrl,
+  envConfig.corsOrigin,
+  'http://localhost:5173',
+  'http://localhost:8080',
   'https://gestion-de-un-dojo-3.vercel.app',
   /^https:\/\/gestion-de-un-dojo-3-.*\.vercel\.app$/, // Previews de Vercel
-  /^https:\/\/.*-jose-miguel-rodriguezs-projects\.vercel\.app$/ // Previews con tu usuario
+  /^https:\/\/.*-jose-miguel-rodriguezs-projects\.vercel\.app$/ // Previews autorizados
 ].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
-    // Permitir requests sin origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    // Verificar si el origin está en la lista permitida
     const isAllowed = allowedOrigins.some(allowed => {
       if (typeof allowed === 'string') {
         return origin === allowed;
@@ -54,8 +60,8 @@ app.use(cors({
   },
   credentials: true
 }));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
 // Middleware para logging
 app.use((req, res, next) => {
@@ -86,10 +92,13 @@ app.get('/api/health', (req, res) => {
 
 // Manejo de errores
 app.use((err, req, res, next) => {
+  if (err?.message === 'Not allowed by CORS') {
+    return res.status(403).json({ error: 'Origen no permitido por CORS' });
+  }
   console.error('Error:', err);
   res.status(500).json({ 
     error: 'Error interno del servidor',
-    message: err.message 
+    ...(envConfig.nodeEnv === 'development' ? { message: err.message } : {})
   });
 });
 

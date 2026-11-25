@@ -3,7 +3,15 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import supabase from '../utils/supabaseClient.js';
+import { envConfig } from '../config/env.js';
 import { generateToken } from '../middleware/auth.js';
+import {
+  authGeneralLimiter,
+  loginLimiter,
+  registerLimiter,
+  passwordResetLimiter,
+  otpVerificationLimiter,
+} from '../middleware/rateLimiters.js';
 import { registrarLog, LogActions, LogModules } from '../utils/logger.js';
 import { body, validationResult } from 'express-validator';
 import { sendPasswordResetEmail, sendEmailVerificationCode } from '../utils/emailService.js';
@@ -17,7 +25,9 @@ import {
 
 const router = express.Router();
 
-router.post('/login', [
+router.use(authGeneralLimiter);
+
+router.post('/login', loginLimiter, [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido'),
   body('password').notEmpty().withMessage('Password es requerido')
@@ -178,7 +188,7 @@ router.post('/login', [
   }
 });
 
-router.post('/register', [
+router.post('/register', registerLimiter, [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido'),
   body('username').notEmpty().withMessage('Username es requerido')
@@ -242,9 +252,7 @@ router.post('/register', [
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 30); // Válido por 30 minutos
 
-    console.log(`📧 Generando código de verificación para: ${email}`);
-    console.log(`   Código: ${verificationCode}`);
-    console.log(`   Expira en: ${expiresAt.toISOString()}`);
+    console.log(`📧 Generando código de verificación (expira: ${expiresAt.toISOString()})`);
 
     // Insertar nuevo usuario (con email NO verificado)
     const { data: newUserData, error: insertError } = await supabase
@@ -306,7 +314,7 @@ router.post('/register', [
   }
 });
 
-router.post('/forgot-password', [
+router.post('/forgot-password', passwordResetLimiter, [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido')
 ], async (req, res) => {
@@ -350,12 +358,11 @@ router.post('/forgot-password', [
 
     // Generar token único y seguro
     const resetToken = crypto.randomBytes(32).toString('hex');
-    console.log(`   Token generado: ${resetToken.substring(0, 10)}...`);
     
     // Calcular fecha de expiración (15 minutos)
     const expiresAt = new Date();
     expiresAt.setMinutes(expiresAt.getMinutes() + 15);
-    console.log(`   Token expira en: ${expiresAt.toISOString()}`);
+    console.log(`   Token de recuperación generado (expira: ${expiresAt.toISOString()})`);
 
     // Eliminar tokens anteriores no usados del mismo usuario
     console.log('   Eliminando tokens anteriores...');
@@ -371,15 +378,8 @@ router.post('/forgot-password', [
 
     // Guardar token en la base de datos
     console.log('   Guardando nuevo token en la base de datos...');
-    console.log('   Datos a insertar:', {
-      usuario_id: user.id,
-      token: resetToken.substring(0, 10) + '...',
-      expires_at: expiresAt.toISOString(),
-      used: 0
-    });
     
     // Intentar con 0 primero (tipo numérico), si falla intentar con false (tipo boolean)
-    let insertedData;
     let insertError;
     
     // Primero intentar con 0 (numérico)
@@ -390,8 +390,7 @@ router.post('/forgot-password', [
         token: resetToken,
         expires_at: expiresAt.toISOString(),
         used: 0
-      })
-      .select();
+      });
     
     if (result1.error) {
       console.log('   Intentando con used: false (boolean)...');
@@ -403,30 +402,22 @@ router.post('/forgot-password', [
           token: resetToken,
           expires_at: expiresAt.toISOString(),
           used: false
-        })
-        .select();
+        });
       
-      insertedData = result2.data;
       insertError = result2.error;
     } else {
-      insertedData = result1.data;
       insertError = result1.error;
     }
 
     if (insertError) {
-      console.error('❌ Error guardando token de reset:');
-      console.error('   Código:', insertError.code);
-      console.error('   Mensaje:', insertError.message);
-      console.error('   Detalles:', insertError.details);
-      console.error('   Hint:', insertError.hint);
+      console.error('❌ Error guardando token de reset:', insertError.message);
       throw new Error(`Error guardando token de recuperación: ${insertError.message}`);
     }
-    console.log('   ✅ Token guardado exitosamente:', insertedData);
+    console.log('   ✅ Token de recuperación almacenado en BD');
 
-    // Construir URL de reset (usar la URL del frontend)
-    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:8080';
+    // Construir URL de reset (usar la URL del frontend sin imprimir el token en logs)
+    const frontendUrl = envConfig.frontendUrl;
     const resetUrl = `${frontendUrl}/reset-password?token=${resetToken}`;
-    console.log(`   URL de reset: ${resetUrl}`);
 
     // Enviar correo
     try {
@@ -453,7 +444,7 @@ router.post('/forgot-password', [
 });
 
 // Verificar token de recuperación
-router.get('/reset-password/:token', async (req, res) => {
+router.get('/reset-password/:token', passwordResetLimiter, async (req, res) => {
   try {
     const { token } = req.params;
 
@@ -506,7 +497,7 @@ router.get('/reset-password/:token', async (req, res) => {
 });
 
 // Restablecer contraseña
-router.post('/reset-password', [
+router.post('/reset-password', passwordResetLimiter, [
   body('token').notEmpty().withMessage('Token es requerido'),
   body('password').notEmpty().withMessage('Password es requerido')
     .isLength({ min: 6 }).withMessage('Password debe tener al menos 6 caracteres')
@@ -602,7 +593,7 @@ router.post('/reset-password', [
 });
 
 // Reenviar código de desbloqueo
-router.post('/resend-unlock-code', [
+router.post('/resend-unlock-code', otpVerificationLimiter, [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido')
 ], async (req, res) => {
@@ -650,7 +641,7 @@ router.post('/resend-unlock-code', [
 });
 
 // Verificar y desbloquear cuenta con código
-router.post('/verify-unlock-code', [
+router.post('/verify-unlock-code', otpVerificationLimiter, [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido'),
   body('unlockCode').notEmpty().withMessage('Código es requerido')
@@ -704,7 +695,7 @@ router.post('/verify-unlock-code', [
 });
 
 // Verificar código de email
-router.post('/verify-email', [
+router.post('/verify-email', otpVerificationLimiter, [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido'),
   body('code').notEmpty().withMessage('Código es requerido')
@@ -812,7 +803,7 @@ router.post('/verify-email', [
 });
 
 // Reenviar código de verificación
-router.post('/resend-verification-code', [
+router.post('/resend-verification-code', otpVerificationLimiter, [
   body('email').notEmpty().withMessage('Email es requerido')
     .isEmail().withMessage('Email debe ser válido')
 ], async (req, res) => {
@@ -895,7 +886,7 @@ router.get('/verify', async (req, res) => {
   }
 
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, envConfig.jwtSecret);
     
     // Verificar que el usuario aún existe y está activo
     const { data: users, error: userError } = await supabase

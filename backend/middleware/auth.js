@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { envConfig } from '../config/env.js';
 
 export const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
@@ -8,7 +9,7 @@ export const authenticateToken = (req, res, next) => {
     return res.status(401).json({ error: 'Token de acceso requerido' });
   }
 
-  jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+  jwt.verify(token, envConfig.jwtSecret, (err, user) => {
     if (err) {
       return res.status(403).json({ error: 'Token inválido' });
     }
@@ -24,7 +25,7 @@ export const generateToken = (user) => {
       username: user.username, 
       rol: user.rol 
     },
-    process.env.JWT_SECRET,
+    envConfig.jwtSecret,
     { expiresIn: '24h' }
   );
 };

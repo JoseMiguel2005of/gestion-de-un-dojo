@@ -1,26 +1,27 @@
 import nodemailer from 'nodemailer';
-import dotenv from 'dotenv';
+import { envConfig } from '../config/env.js';
 
-dotenv.config();
+// Obtener credenciales exclusivamente desde variables de entorno (sin fallbacks hardcodeados)
+const emailUser = envConfig.emailUser;
+const emailPass = envConfig.emailPass;
 
-// Obtener credenciales de variables de entorno
-const emailUser = process.env.EMAIL_USER || 'gestiondojo86@gmail.com';
-const emailPass = process.env.EMAIL_PASS || 'GestionDojo12';
+// Configuración del transporte de correo (solo si las credenciales existen)
+const transporter = emailUser && emailPass
+  ? nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: emailUser,
+        pass: emailPass,
+      },
+    })
+  : null;
 
-console.log('📧 Configurando servicio de correo...');
-console.log('   EMAIL_USER desde env:', process.env.EMAIL_USER ? '✅ Configurado' : '❌ No configurado');
-console.log('   EMAIL_PASS desde env:', process.env.EMAIL_PASS ? '✅ Configurado' : '❌ No configurado');
-console.log('   Usuario final:', emailUser);
-console.log('   Contraseña final configurada:', emailPass ? '✅ Sí (longitud: ' + emailPass.length + ')' : '❌ No');
-
-// Configuración del transporte de correo (Gmail)
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: emailUser,
-    pass: emailPass
+const ensureTransporter = () => {
+  if (!transporter || !emailUser || !emailPass) {
+    throw new Error('Servicio de correo no configurado. Define EMAIL_USER y EMAIL_PASS en las variables de entorno.');
   }
-});
+  return transporter;
+};
 
 /**
  * Envía un correo de recuperación de contraseña
@@ -143,10 +144,10 @@ export const sendPasswordResetEmail = async (to, resetToken, resetUrl) => {
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const activeTransporter = ensureTransporter();
+    const info = await activeTransporter.sendMail(mailOptions);
     console.log('✅ Correo de recuperación enviado exitosamente');
     console.log('   MessageId:', info.messageId);
-    console.log('   Destinatario:', to);
     return info;
   } catch (error) {
     console.error('❌ ERROR al enviar correo de recuperación:');
@@ -173,6 +174,10 @@ export const sendPasswordResetEmail = async (to, resetToken, resetUrl) => {
  * Verifica la configuración del transporte de correo
  */
 export const verifyEmailConfig = async () => {
+  if (!transporter || !emailUser || !emailPass) {
+    console.warn('⚠️ Servicio de correo deshabilitado: EMAIL_USER o EMAIL_PASS no configurados.');
+    return false;
+  }
   try {
     console.log('🔍 Verificando configuración de correo...');
     await transporter.verify();
@@ -293,8 +298,9 @@ export const sendEmailVerificationCode = async (to, verificationCode, username) 
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
-    console.log(`✅ Código de verificación enviado exitosamente a: ${to}`);
+    const activeTransporter = ensureTransporter();
+    const info = await activeTransporter.sendMail(mailOptions);
+    console.log('✅ Código de verificación enviado exitosamente');
     console.log(`   Message ID: ${info.messageId}`);
     return info;
   } catch (error) {
@@ -307,19 +313,9 @@ export const sendEmailVerificationCode = async (to, verificationCode, username) 
 };
 
 export const sendUnlockCodeEmail = async (to, unlockCode, username) => {
-  if (!emailUser || !emailPass) {
-    console.error('❌ No se puede enviar código de desbloqueo: EMAIL_USER o EMAIL_PASS no configurados.');
-    throw new Error('Configuración de correo incompleta.');
-  }
+  const activeTransporter = ensureTransporter();
   try {
-    console.log(`📨 Intentando enviar código de desbloqueo a: ${to}`);
-    console.log(`   Usuario de correo: ${emailUser}`);
-    console.log(`   Contraseña configurada: Sí (longitud: ${emailPass.length})`);
-    
-    // Verificar que el transporte esté configurado
-    if (!transporter) {
-      throw new Error('Transporte de correo no configurado');
-    }
+    console.log('📨 Intentando enviar código de desbloqueo...');
     
     const mailOptions = {
       from: `"Dojo de Judo" <${emailUser}>`,
@@ -439,11 +435,9 @@ export const sendUnlockCodeEmail = async (to, unlockCode, username) => {
       `
     };
 
-    const info = await transporter.sendMail(mailOptions);
+    const info = await activeTransporter.sendMail(mailOptions);
     console.log('✅ Código de desbloqueo enviado exitosamente');
     console.log('   MessageId:', info.messageId);
-    console.log('   Destinatario:', to);
-    console.log('   Código:', unlockCode);
     return info;
   } catch (error) {
     console.error('❌ ERROR al enviar código de desbloqueo:');
