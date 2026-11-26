@@ -25,13 +25,6 @@ function notifySessionExpired(endpoint: string, code?: string) {
   );
 }
 
-// Interfaz para las respuestas de la API
-interface ApiResponse<T> {
-  data?: T;
-  error?: string;
-  message?: string;
-}
-
 // Clase para manejar las peticiones HTTP
 class ApiClient {
   private baseURL: string;
@@ -502,12 +495,6 @@ class ApiClient {
     );
   }
 
-  async generarResultadosAleatorios() {
-    return this.request<any>('/evaluaciones/generar-resultados-aleatorios', {
-      method: 'POST',
-    });
-  }
-
   // Métodos para configuración
   async getConfiguracion() {
     return this.request<Record<string, string>>('/configuracion');
@@ -612,7 +599,7 @@ class ApiClient {
     const cleanParams: Record<string, string> = {};
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
+        if (v !== undefined && v !== null && String(v) !== '') {
           cleanParams[k] = String(v);
         }
       });
@@ -627,7 +614,7 @@ class ApiClient {
     const cleanParams: Record<string, string> = { paginated: 'true' };
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
+        if (v !== undefined && v !== null && String(v) !== '') {
           cleanParams[k] = String(v);
         }
       });
@@ -769,7 +756,7 @@ class ApiClient {
     const cleanParams: Record<string, string> = {};
     if (params) {
       Object.entries(params).forEach(([k, v]) => {
-        if (v !== undefined && v !== null && v !== '') {
+        if (v !== undefined && v !== null && String(v) !== '') {
           cleanParams[k] = String(v);
         }
       });
@@ -863,19 +850,33 @@ class ApiClient {
   }
 
   async importarJSON(archivo: File) {
-    const formData = new FormData();
-    formData.append('archivo', archivo);
-    
-    return this.request<any>('/backup/import/json', {
+    const texto = await archivo.text();
+    let parsed: any;
+    try {
+      parsed = JSON.parse(texto);
+    } catch {
+      throw new Error('El archivo seleccionado no es un JSON válido');
+    }
+
+    const datos = parsed?.datos && typeof parsed.datos === 'object' ? parsed.datos : parsed;
+    if (!datos || typeof datos !== 'object' || Array.isArray(datos)) {
+      throw new Error('Estructura de respaldo JSON inválida: falta el bloque "datos"');
+    }
+
+    return this.request<{
+      message: string;
+      registros_importados: number;
+      tablas_procesadas: Array<{ tabla: string; registros: number }>;
+      errores: Array<{ tabla: string; error: string }>;
+    }>('/backup/import/json', {
       method: 'POST',
-      body: formData,
+      body: JSON.stringify({ datos }),
     });
   }
 
   async getStats() {
     return this.request<any>('/backup/stats');
   }
-
 
   async verificarIntegridad() {
     return this.request<any>('/backup/verificar-integridad');
@@ -886,21 +887,6 @@ class ApiClient {
       method: 'POST',
     });
   }
-
-  // Método para generar datos de demostración
-  async generateDemoData() {
-    return this.request<any>('/demo/generate', {
-      method: 'POST',
-    });
-  }
-
-  // Método para eliminar datos de demostración
-  async deleteDemoData() {
-    return this.request<any>('/demo/delete', {
-      method: 'DELETE',
-    });
-  }
-
 
   // Método para hacer logout
   logout() {

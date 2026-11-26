@@ -873,11 +873,4 @@ router.post(
   }
 );
 
-// Generar resultados aleatorios para evaluaciones (se limpiará definitivamente en Fase 8)
-router.post('/generar-resultados-aleatorios', requireRole(ADMIN_ONLY), async (req, res) => {
-  res.status(410).json({
-    error: 'La generación aleatoria de resultados ha sido deshabilitada para preservar la integridad académica.',
-  });
-});
-
 export default router;

@@ -16,7 +16,7 @@ import {
 import { registrarLog, LogActions, LogModules } from '../utils/logger.js';
 import { body, validationResult } from 'express-validator';
 import { sendPasswordResetEmail, sendEmailVerificationCode } from '../utils/emailService.js';
-import { verifyEmailFormat, verifyEmailExists } from '../utils/emailVerification.js';
+import { verifyEmailFormat } from '../utils/emailVerification.js';
 import { 
   incrementFailedAttempts, 
   resetFailedAttempts, 

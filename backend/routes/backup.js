@@ -2,376 +2,311 @@ import express from 'express';
 import supabase from '../utils/supabaseClient.js';
 import { authenticateToken, requireRole } from '../middleware/auth.js';
 import { ADMIN_ONLY } from '../config/permissions.js';
-import { exec } from 'child_process';
-import { promisify } from 'util';
-import path from 'path';
-import fs from 'fs';
+import { registrarLog, LogActions, LogModules } from '../utils/logger.js';
 
-const execPromise = promisify(exec);
 const router = express.Router();
 
 router.use(authenticateToken, requireRole(ADMIN_ONLY));
 
-// Exportar datos en formato JSON
+// Orden estricto respetando llaves foráneas de PostgreSQL
+const TABLAS_DOMINIO_ORDENADAS = [
+  { nombre: 'configuracion', onConflict: 'clave', tieneSecuenciaId: true },
+  { nombre: 'config_pagos', onConflict: 'id', tieneSecuenciaId: false },
+  { nombre: 'categorias_edad', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'cintas', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'representante', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'alumno', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'alumnorepresentante', onConflict: 'id_alumno,id_representante', tieneSecuenciaId: true },
+  { nombre: 'horarios_clases', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'dias_festivos', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'evaluacion', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'alumnoevaluacion', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'pagos', onConflict: 'id', tieneSecuenciaId: true },
+  { nombre: 'asistencias', onConflict: 'id', tieneSecuenciaId: true },
+];
+
+const MAPA_TABLAS_IMPORTABLES = new Map(
+  TABLAS_DOMINIO_ORDENADAS.map((t) => [t.nombre, t])
+);
+
+function formatearValorSQLPostgres(valor) {
+  if (valor === null || valor === undefined) return 'NULL';
+  if (typeof valor === 'boolean') return valor ? 'TRUE' : 'FALSE';
+  if (typeof valor === 'number') {
+    return Number.isFinite(valor) ? String(valor) : 'NULL';
+  }
+  if (valor instanceof Date) {
+    return `'${valor.toISOString().replace(/'/g, "''")}'`;
+  }
+  if (typeof valor === 'object') {
+    return `'${JSON.stringify(valor).replace(/'/g, "''")}'`;
+  }
+  return `'${String(valor).replace(/'/g, "''")}'`;
+}
+
+// Exportar respaldo completo en formato JSON (con redacción de hashes de contraseña)
 router.get('/export/json', async (req, res) => {
   try {
-    const tablas = [
-      'alumno',
-      'categorias',
-      'evaluacion',
-      'representante',
-      'usuario',
-      'configuracion',
-      'config_pagos',
-      'config_notificaciones',
-      'horarios_clases',
-      'dias_festivos',
-      'plantillas_documentos',
-      'documentos_requeridos'
-    ];
-
     const backup = {
       fecha_backup: new Date().toISOString(),
-      sistema: 'Sistema Dojo',
-      version: '1.0.0',
-      datos: {}
+      sistema: 'Sistema de Gestión de Dojo',
+      motor_bd: 'PostgreSQL (Supabase)',
+      version: '2.0.0',
+      datos: {},
     };
 
-    for (const tabla of tablas) {
-      try {
-        const { data, error } = await supabase.from(tabla).select('*');
-        if (error) {
-          console.error(`Error exportando tabla ${tabla}:`, error);
-          backup.datos[tabla] = [];
-        } else {
-          backup.datos[tabla] = data || [];
-        }
-      } catch (error) {
-        console.error(`Error exportando tabla ${tabla}:`, error);
-        backup.datos[tabla] = [];
+    // Exportar metadatos de usuarios sin exponer password_hash
+    const { data: usuariosData } = await supabase
+      .from('usuario')
+      .select('id, username, email, nombre_completo, rol, estado, activo, email_verificado, idioma_preferido, fecha_creacion');
+    backup.datos.usuario_referencia = usuariosData || [];
+
+    for (const infoTabla of TABLAS_DOMINIO_ORDENADAS) {
+      const { data, error } = await supabase.from(infoTabla.nombre).select('*');
+      if (error) {
+        console.error(`Error exportando tabla ${infoTabla.nombre}:`, error.message);
+        backup.datos[infoTabla.nombre] = [];
+      } else {
+        backup.datos[infoTabla.nombre] = data || [];
       }
     }
 
-    res.setHeader('Content-Type', 'application/json');
+    await registrarLog({
+      usuario_id: req.user.id,
+      accion: LogActions.EXPORTAR,
+      modulo: LogModules.BACKUP,
+      descripcion: 'Exportación de respaldo completo en formato JSON',
+      ip_address: req.ip || req.connection?.remoteAddress,
+      user_agent: req.get('User-Agent'),
+    });
+
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Disposition', `attachment; filename=backup_dojo_${Date.now()}.json`);
     res.json(backup);
   } catch (error) {
-    console.error('Error exportando datos:', error);
-    res.status(500).json({ error: 'Error exportando datos' });
+    console.error('Error exportando JSON:', error);
+    res.status(500).json({ error: 'Error exportando datos en JSON' });
   }
 });
 
-// Exportar datos en formato SQL (para phpMyAdmin)
+// Exportar respaldo en formato SQL estándar PostgreSQL (Supabase)
 router.get('/export/sql', async (req, res) => {
   try {
-    const tablas = [
-      'alumno',
-      'categorias', 
-      'evaluacion',
-      'representante',
-      'usuario',
-      'configuracion',
-      'config_pagos',
-      'horarios_clases',
-      'dias_festivos'
-    ];
+    let sqlContent = `-- ============================================================================
+-- Respaldo SQL PostgreSQL - Sistema de Gestión de Dojo v2.0.0
+-- Generado: ${new Date().toISOString()}
+-- Motor destino: PostgreSQL 15+ / Supabase
+-- ============================================================================
 
-    let sqlContent = `-- Backup SQL del Sistema Dojo
--- Fecha: ${new Date().toISOString()}
--- Sistema: Sistema Dojo v1.0.0
-
-SET SQL_MODE = "NO_AUTO_VALUE_ON_ZERO";
-SET AUTOCOMMIT = 0;
-START TRANSACTION;
-SET time_zone = "+00:00";
+BEGIN;
+SET TIME ZONE 'UTC';
 
 `;
 
-    // Nota: En Supabase no podemos obtener la estructura de la tabla directamente
-    // Solo exportamos los datos
-    for (const tabla of tablas) {
-      try {
-        const { data: datos, error } = await supabase.from(tabla).select('*');
-        if (error) {
-          console.error(`Error exportando tabla ${tabla}:`, error);
-          sqlContent += `-- Error exportando tabla ${tabla}: ${error.message}\n\n`;
-          continue;
-        }
-        
-        if (datos && datos.length > 0) {
-          sqlContent += `-- Datos de tabla ${tabla}\n`;
-          
-          // Obtener nombres de columnas
-          const columnas = Object.keys(datos[0]);
-          const columnasStr = columnas.map(col => `\`${col}\``).join(', ');
-          
-          // Generar INSERT statements
-          for (const fila of datos) {
-            const valores = columnas.map(col => {
-              const valor = fila[col];
-              if (valor === null) return 'NULL';
-              if (typeof valor === 'string') return `'${valor.replace(/'/g, "''")}'`;
-              if (valor instanceof Date) return `'${valor.toISOString()}'`;
-              return valor;
-            });
-            sqlContent += `INSERT INTO \`${tabla}\` (${columnasStr}) VALUES (${valores.join(', ')});\n`;
-          }
-          sqlContent += '\n';
-        }
-      } catch (error) {
-        console.error(`Error exportando tabla ${tabla}:`, error);
-        sqlContent += `-- Error exportando tabla ${tabla}: ${error.message}\n\n`;
+    for (const infoTabla of TABLAS_DOMINIO_ORDENADAS) {
+      const { data: filas, error } = await supabase.from(infoTabla.nombre).select('*');
+      if (error) {
+        sqlContent += `-- Advertencia: no se pudo leer public.${infoTabla.nombre} (${error.message})\n\n`;
+        continue;
       }
+
+      if (!filas || filas.length === 0) {
+        sqlContent += `-- Tabla public.${infoTabla.nombre}: sin registros\n\n`;
+        continue;
+      }
+
+      sqlContent += `-- Datos de public.${infoTabla.nombre} (${filas.length} registros)\n`;
+      const columnas = Object.keys(filas[0]);
+      const columnasSQL = columnas.map((c) => `"${c.replace(/"/g, '""')}"`).join(', ');
+
+      for (const fila of filas) {
+        const valoresSQL = columnas.map((col) => formatearValorSQLPostgres(fila[col])).join(', ');
+        sqlContent += `INSERT INTO public."${infoTabla.nombre}" (${columnasSQL}) VALUES (${valoresSQL}) ON CONFLICT DO NOTHING;\n`;
+      }
+
+      if (infoTabla.tieneSecuenciaId && columnas.includes('id')) {
+        sqlContent += `SELECT setval(pg_get_serial_sequence('public.${infoTabla.nombre}', 'id'), COALESCE((SELECT MAX(id) FROM public."${infoTabla.nombre}"), 1), true);\n`;
+      }
+      sqlContent += '\n';
     }
 
-    sqlContent += `COMMIT;`;
+    sqlContent += 'COMMIT;\n';
 
-    res.setHeader('Content-Type', 'application/sql');
-    res.setHeader('Content-Disposition', `attachment; filename=backup_dojo_${Date.now()}.sql`);
+    await registrarLog({
+      usuario_id: req.user.id,
+      accion: LogActions.EXPORTAR,
+      modulo: LogModules.BACKUP,
+      descripcion: 'Exportación de respaldo completo en formato SQL PostgreSQL',
+      ip_address: req.ip || req.connection?.remoteAddress,
+      user_agent: req.get('User-Agent'),
+    });
+
+    res.setHeader('Content-Type', 'application/sql; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename=backup_dojo_pg_${Date.now()}.sql`);
     res.send(sqlContent);
   } catch (error) {
     console.error('Error exportando SQL:', error);
-    res.status(500).json({ error: 'Error exportando SQL' });
+    res.status(500).json({ error: 'Error exportando respaldo SQL' });
   }
 });
 
-// Importar/restaurar datos desde JSON
+// Importar / restaurar datos desde JSON validando lista blanca y orden FK
 router.post('/import/json', async (req, res) => {
   try {
-    const { datos } = req.body;
-    
-    if (!datos) {
-      return res.status(400).json({ error: 'No se proporcionaron datos para importar' });
+    const payloadDatos = req.body?.datos;
+
+    if (!payloadDatos || typeof payloadDatos !== 'object' || Array.isArray(payloadDatos)) {
+      return res.status(400).json({
+        error: 'Formato de respaldo inválido: se esperaba un objeto JSON con la propiedad "datos"',
+      });
     }
 
-    const tablas = Object.keys(datos);
     let importados = 0;
-    let errores = [];
+    const tablasProcesadas = [];
+    const errores = [];
 
-    for (const tabla of tablas) {
-      try {
-        const registros = datos[tabla];
-        if (Array.isArray(registros) && registros.length > 0) {
-          // Limpiar tabla existente (obtener todos los IDs y eliminarlos)
-          const { data: existingRecords, error: selectError } = await supabase
-            .from(tabla)
-            .select('id')
-            .limit(10000); // Límite razonable
-          
-          if (!selectError && existingRecords && existingRecords.length > 0) {
-            // Eliminar en lotes
-            const ids = existingRecords.map(r => r.id);
-            const batchSize = 100;
-            for (let i = 0; i < ids.length; i += batchSize) {
-              const batch = ids.slice(i, i + batchSize);
-              const { error: deleteError } = await supabase
-                .from(tabla)
-                .delete()
-                .in('id', batch);
-              
-              if (deleteError) {
-                console.error(`Error limpiando lote de tabla ${tabla}:`, deleteError);
-              }
-            }
-          }
-          
-          // Insertar nuevos datos en lotes
-          const batchSize = 100;
-          for (let i = 0; i < registros.length; i += batchSize) {
-            const batch = registros.slice(i, i + batchSize);
-            const { error: insertError } = await supabase
-              .from(tabla)
-              .insert(batch);
-            
-            if (insertError) {
-              console.error(`Error insertando lote en tabla ${tabla}:`, insertError);
-              errores.push({ tabla, error: insertError.message });
-            } else {
-              importados += batch.length;
-            }
-          }
+    // Procesar estrictamente en orden de dependencias de llaves foráneas y solo tablas permitidas
+    for (const infoTabla of TABLAS_DOMINIO_ORDENADAS) {
+      const registros = payloadDatos[infoTabla.nombre];
+      if (!Array.isArray(registros) || registros.length === 0) {
+        continue;
+      }
+
+      if (!MAPA_TABLAS_IMPORTABLES.has(infoTabla.nombre)) {
+        continue;
+      }
+
+      let importadosTabla = 0;
+      const batchSize = 100;
+
+      for (let i = 0; i < registros.length; i += batchSize) {
+        const lote = registros.slice(i, i + batchSize).filter((r) => r && typeof r === 'object');
+        if (lote.length === 0) continue;
+
+        const { error: upsertErr } = await supabase
+          .from(infoTabla.nombre)
+          .upsert(lote, { onConflict: infoTabla.onConflict });
+
+        if (upsertErr) {
+          console.error(`Error importando lote en ${infoTabla.nombre}:`, upsertErr.message);
+          errores.push({ tabla: infoTabla.nombre, error: upsertErr.message });
+        } else {
+          importados += lote.length;
+          importadosTabla += lote.length;
         }
-      } catch (error) {
-        console.error(`Error importando tabla ${tabla}:`, error);
-        errores.push({ tabla, error: error.message });
+      }
+
+      if (importadosTabla > 0) {
+        tablasProcesadas.push({ tabla: infoTabla.nombre, registros: importadosTabla });
       }
     }
 
-    res.json({ 
-      message: 'Importación completada',
+    await registrarLog({
+      usuario_id: req.user.id,
+      accion: LogActions.IMPORTAR,
+      modulo: LogModules.BACKUP,
+      descripcion: `Importación de respaldo JSON: ${importados} registro(s) en ${tablasProcesadas.length} tabla(s)`,
+      ip_address: req.ip || req.connection?.remoteAddress,
+      user_agent: req.get('User-Agent'),
+    });
+
+    res.json({
+      message: 'Importación completada exitosamente',
       registros_importados: importados,
-      errores: errores
+      tablas_procesadas: tablasProcesadas,
+      errores,
     });
   } catch (error) {
-    console.error('Error importando datos:', error);
-    res.status(500).json({ error: 'Error importando datos' });
+    console.error('Error importando datos JSON:', error);
+    res.status(500).json({ error: 'Error importando datos de respaldo' });
   }
 });
 
-// Obtener estadísticas del sistema
+// Obtener estadísticas reales del sistema PostgreSQL
 router.get('/stats', async (req, res) => {
   try {
-    const stats = {};
+    const [
+      { count: totalAlumnos },
+      { count: totalEvaluaciones },
+      { count: totalPagos },
+      { count: totalAsistencias },
+      { count: totalUsuarios },
+      { count: totalLogs },
+      { data: ultimoBackup },
+    ] = await Promise.all([
+      supabase.from('alumno').select('*', { count: 'exact', head: true }),
+      supabase.from('evaluacion').select('*', { count: 'exact', head: true }),
+      supabase.from('pagos').select('*', { count: 'exact', head: true }),
+      supabase.from('asistencias').select('*', { count: 'exact', head: true }),
+      supabase.from('usuario').select('*', { count: 'exact', head: true }),
+      supabase.from('log_actividades').select('*', { count: 'exact', head: true }),
+      supabase.from('configuracion').select('valor').eq('clave', 'ultimo_backup').maybeSingle(),
+    ]);
 
-    // Total de alumnos
-    const { count: totalAlumnos, error: alumnosError } = await supabase
-      .from('alumno')
-      .select('*', { count: 'exact', head: true });
-    
-    if (alumnosError) {
-      console.error('Error contando alumnos:', alumnosError);
-      stats.total_alumnos = 0;
-    } else {
-      stats.total_alumnos = totalAlumnos || 0;
-    }
-
-    // Total de evaluaciones
-    const { count: totalEvaluaciones, error: evaluacionesError } = await supabase
-      .from('evaluacion')
-      .select('*', { count: 'exact', head: true });
-    
-    if (evaluacionesError) {
-      console.error('Error contando evaluaciones:', evaluacionesError);
-      stats.total_evaluaciones = 0;
-    } else {
-      stats.total_evaluaciones = totalEvaluaciones || 0;
-    }
-
-    // Total de usuarios
-    const { count: totalUsuarios, error: usuariosError } = await supabase
-      .from('usuario')
-      .select('*', { count: 'exact', head: true });
-    
-    if (usuariosError) {
-      console.error('Error contando usuarios:', usuariosError);
-      stats.total_usuarios = 0;
-    } else {
-      stats.total_usuarios = totalUsuarios || 0;
-    }
-
-    // Total de logs
-    const { count: totalLogs, error: logsError } = await supabase
-      .from('log_actividades')
-      .select('*', { count: 'exact', head: true });
-    
-    if (logsError) {
-      console.error('Error contando logs:', logsError);
-      stats.total_logs = 0;
-    } else {
-      stats.total_logs = totalLogs || 0;
-    }
-
-    // Tamaño de tablas - En Supabase no tenemos acceso directo a information_schema
-    // Retornamos un array vacío o podemos hacer consultas aproximadas
-    stats.tablas = [];
-
-    // Último backup (si se guarda en configuración)
-    const { data: ultimoBackup, error: backupError } = await supabase
-      .from('configuracion')
-      .select('valor')
-      .eq('clave', 'ultimo_backup')
-      .single();
-
-    if (backupError && backupError.code !== 'PGRST116') {
-      console.error('Error obteniendo último backup:', backupError);
-      stats.ultimo_backup = 'Nunca';
-    } else {
-      stats.ultimo_backup = ultimoBackup?.valor || 'Nunca';
-    }
-
-    res.json(stats);
+    res.json({
+      total_alumnos: totalAlumnos || 0,
+      total_evaluaciones: totalEvaluaciones || 0,
+      total_pagos: totalPagos || 0,
+      total_asistencias: totalAsistencias || 0,
+      total_usuarios: totalUsuarios || 0,
+      total_logs: totalLogs || 0,
+      ultimo_backup: ultimoBackup?.valor || 'Nunca',
+    });
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
+    console.error('Error obteniendo estadísticas de respaldo:', error);
     res.status(500).json({ error: 'Error obteniendo estadísticas', details: error.message });
   }
 });
 
-// Limpiar logs antiguos
-router.delete('/logs/limpiar', async (req, res) => {
-  try {
-    const { dias = 90 } = req.query;
-    
-    // Calcular fecha límite
-    const fechaLimite = new Date();
-    fechaLimite.setDate(fechaLimite.getDate() - parseInt(dias));
-
-    const { data, error } = await supabase
-      .from('log_actividades')
-      .delete()
-      .lt('created_at', fechaLimite.toISOString())
-      .select();
-
-    if (error) {
-      console.error('Error limpiando logs:', error);
-      return res.status(500).json({ error: 'Error limpiando logs' });
-    }
-
-    res.json({ 
-      message: `Logs antiguos eliminados exitosamente`, 
-      eliminados: data?.length || 0 
-    });
-  } catch (error) {
-    console.error('Error limpiando logs:', error);
-    res.status(500).json({ error: 'Error limpiando logs' });
-  }
-});
-
-// Verificar integridad de datos
+// Verificar integridad referencial de catálogos principales
 router.get('/verificar-integridad', async (req, res) => {
   try {
     const problemas = [];
 
-    // Obtener todas las categorías de edad válidas
-    const { data: categorias, error: catError } = await supabase
-      .from('categorias_edad')
-      .select('id');
-    
-    if (catError) {
-      console.error('Error obteniendo categorías:', catError);
-    } else {
-      const categoriaIds = categorias?.map(c => c.id) || [];
-      
-      // Verificar alumnos sin categoría de edad válida
-      const { data: alumnos, error: alumnosError } = await supabase
-        .from('alumno')
-        .select('id, id_categoria_edad');
-      
-      if (!alumnosError && alumnos) {
-        const alumnosSinCategoria = alumnos.filter(a => 
-          !a.id_categoria_edad || !categoriaIds.includes(a.id_categoria_edad)
-        );
-        
-        if (alumnosSinCategoria.length > 0) {
-          problemas.push({
-            tipo: 'advertencia',
-            mensaje: `${alumnosSinCategoria.length} alumno(s) sin categoría de edad válida asignada`
-          });
-        }
-      }
+    const [{ data: categorias }, { data: cintas }, { data: alumnos }, { data: horarios }] =
+      await Promise.all([
+        supabase.from('categorias_edad').select('id'),
+        supabase.from('cintas').select('id'),
+        supabase.from('alumno').select('id, estado, id_categoria_edad, id_cinta'),
+        supabase.from('horarios_clases').select('id, id_categoria_edad'),
+      ]);
 
-      // Verificar horarios sin categoría de edad válida
-      const { data: horarios, error: horariosError } = await supabase
-        .from('horarios_clases')
-        .select('id, id_categoria_edad');
-      
-      if (!horariosError && horarios) {
-        const horariosSinCategoria = horarios.filter(h => 
-          h.id_categoria_edad && !categoriaIds.includes(h.id_categoria_edad)
-        );
-        
-        if (horariosSinCategoria.length > 0) {
-          problemas.push({
-            tipo: 'error',
-            mensaje: `${horariosSinCategoria.length} horario(s) con categoría de edad inválida`
-          });
-        }
-      }
+    const categoriaIds = new Set((categorias || []).map((c) => c.id));
+    const cintaIds = new Set((cintas || []).map((c) => c.id));
+
+    const alumnosActivos = (alumnos || []).filter((a) => Boolean(a.estado));
+    const sinCategoria = alumnosActivos.filter(
+      (a) => !a.id_categoria_edad || !categoriaIds.has(a.id_categoria_edad)
+    );
+    if (sinCategoria.length > 0) {
+      problemas.push({
+        tipo: 'advertencia',
+        mensaje: `${sinCategoria.length} alumno(s) activo(s) sin categoría de edad válida asignada`,
+      });
+    }
+
+    const sinCinta = alumnosActivos.filter((a) => !a.id_cinta || !cintaIds.has(a.id_cinta));
+    if (sinCinta.length > 0) {
+      problemas.push({
+        tipo: 'advertencia',
+        mensaje: `${sinCinta.length} alumno(s) activo(s) sin cinta oficial asignada`,
+      });
+    }
+
+    const horariosHuérfanos = (horarios || []).filter(
+      (h) => h.id_categoria_edad && !categoriaIds.has(h.id_categoria_edad)
+    );
+    if (horariosHuérfanos.length > 0) {
+      problemas.push({
+        tipo: 'error',
+        mensaje: `${horariosHuérfanos.length} horario(s) apuntan a una categoría de edad inexistente`,
+      });
     }
 
     res.json({
       estado: problemas.length === 0 ? 'correcto' : 'problemas_encontrados',
       total_problemas: problemas.length,
-      problemas
+      problemas,
     });
   } catch (error) {
     console.error('Error verificando integridad:', error);
@@ -379,44 +314,27 @@ router.get('/verificar-integridad', async (req, res) => {
   }
 });
 
-// Registrar fecha de último backup
+// Registrar fecha del último backup exportado
 router.post('/registrar-backup', async (req, res) => {
   try {
     const fechaBackup = new Date().toISOString();
-    
-    // Intentar actualizar primero
-    const { data: existing, error: selectError } = await supabase
+
+    const { error } = await supabase
       .from('configuracion')
-      .select('id')
-      .eq('clave', 'ultimo_backup')
-      .single();
-    
-    if (existing) {
-      // Actualizar
-      const { error: updateError } = await supabase
-        .from('configuracion')
-        .update({ valor: fechaBackup })
-        .eq('clave', 'ultimo_backup');
-      
-      if (updateError) {
-        throw updateError;
-      }
-    } else {
-      // Insertar
-      const { error: insertError } = await supabase
-        .from('configuracion')
-        .insert({
+      .upsert(
+        {
           clave: 'ultimo_backup',
           valor: fechaBackup,
-          descripcion: 'Fecha del último backup'
-        });
-      
-      if (insertError) {
-        throw insertError;
-      }
+          descripcion: 'Fecha del último respaldo exportado',
+        },
+        { onConflict: 'clave' }
+      );
+
+    if (error) {
+      throw error;
     }
 
-    res.json({ message: 'Backup registrado exitosamente' });
+    res.json({ message: 'Backup registrado exitosamente', fecha: fechaBackup });
   } catch (error) {
     console.error('Error registrando backup:', error);
     res.status(500).json({ error: 'Error registrando backup' });
@@ -424,4 +342,3 @@ router.post('/registrar-backup', async (req, res) => {
 });
 
 export default router;
-

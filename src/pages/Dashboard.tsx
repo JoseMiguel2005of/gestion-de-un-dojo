@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Users, Award, FileText, BarChart3, Clock, DollarSign, Calendar, TrendingUp, ChevronDown, ChevronUp } from "lucide-react";
+import { Users, Award, FileText, BarChart3, Clock, DollarSign, TrendingUp, ChevronDown, ChevronUp } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { toast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/useAuth";
@@ -9,7 +9,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { InscripcionForm } from "@/components/forms/InscripcionForm";
 import { Button } from "@/components/ui/button";
 import { calculateExamTimeInfo } from "@/utils/timeUtils";
-import { useLanguage, getTranslation, translateBelt } from "@/hooks/useLanguage";
+import { useLanguage, translateBelt } from "@/hooks/useLanguage";
 
 export default function Dashboard() {
   const navigate = useNavigate();
