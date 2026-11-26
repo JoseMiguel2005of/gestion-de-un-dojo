@@ -18,6 +18,7 @@ import {
 import { Clock, Calendar, Users, MapPin, AlertCircle, ChevronDown, ChevronUp, Plus, Edit, Trash2 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useLanguage, getTranslation } from "@/hooks/useLanguage";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 interface Horario {
   id: number;
@@ -102,6 +103,7 @@ export default function Horarios() {
     fecha: "",
     descripcion: "",
   });
+  const [confirmDelete, setConfirmDelete] = useState<{ tipo: "horario" | "festivo"; id: number } | null>(null);
 
   useEffect(() => {
     loadData();
@@ -222,22 +224,8 @@ export default function Horarios() {
     }
   };
 
-  const eliminarHorario = async (id: number) => {
-    if (!confirm(isEnglish ? "Delete this class schedule?" : "¿Eliminar este horario de clase?")) return;
-    try {
-      await apiClient.deleteHorario(String(id));
-      toast({
-        title: isEnglish ? "Schedule deleted" : "Horario eliminado",
-        description: isEnglish ? "Class schedule removed" : "El horario fue eliminado correctamente",
-      });
-      loadData();
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
+  const eliminarHorario = (id: number) => {
+    setConfirmDelete({ tipo: "horario", id });
   };
 
   const abrirNuevoFestivo = () => {
@@ -297,13 +285,28 @@ export default function Horarios() {
     }
   };
 
-  const eliminarFestivo = async (id: number) => {
-    if (!confirm(isEnglish ? "Delete this holiday?" : "¿Eliminar este día festivo?")) return;
+  const eliminarFestivo = (id: number) => {
+    setConfirmDelete({ tipo: "festivo", id });
+  };
+
+  const ejecutarConfirmDelete = async () => {
+    if (!confirmDelete) return;
+    const { tipo, id } = confirmDelete;
+    setConfirmDelete(null);
+
     try {
-      await apiClient.deleteDiaFestivo(String(id));
-      toast({
-        title: isEnglish ? "Holiday deleted" : "Día festivo eliminado",
-      });
+      if (tipo === "horario") {
+        await apiClient.deleteHorario(String(id));
+        toast({
+          title: isEnglish ? "Schedule deleted" : "Horario eliminado",
+          description: isEnglish ? "Class schedule removed" : "El horario fue eliminado correctamente",
+        });
+      } else {
+        await apiClient.deleteDiaFestivo(String(id));
+        toast({
+          title: isEnglish ? "Holiday deleted" : "Día festivo eliminado",
+        });
+      }
       loadData();
     } catch (error: any) {
       toast({
@@ -840,6 +843,34 @@ export default function Horarios() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(confirmDelete)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDelete(null);
+        }}
+        title={
+          confirmDelete?.tipo === "horario"
+            ? isEnglish
+              ? "Delete Class Schedule"
+              : "Eliminar Horario de Clase"
+            : isEnglish
+              ? "Delete Holiday"
+              : "Eliminar Día Festivo"
+        }
+        description={
+          confirmDelete?.tipo === "horario"
+            ? isEnglish
+              ? "Are you sure you want to delete this class schedule?"
+              : "¿Estás seguro de eliminar este horario de clase?"
+            : isEnglish
+              ? "Are you sure you want to remove this non-working holiday?"
+              : "¿Estás seguro de eliminar este día festivo del calendario?"
+        }
+        confirmText={isEnglish ? "Delete" : "Eliminar"}
+        cancelText={isEnglish ? "Cancel" : "Cancelar"}
+        onConfirm={ejecutarConfirmDelete}
+      />
     </div>
   );
 }

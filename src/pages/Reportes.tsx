@@ -218,7 +218,7 @@ export default function Reportes() {
             <CardTitle className="text-blue-700 dark:text-blue-400">{isEnglish ? "Students by Category" : "Alumnos por Categoría"}</CardTitle>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-blue-200 dark:border-blue-800">
@@ -260,7 +260,7 @@ export default function Reportes() {
             <CardTitle className="text-orange-700 dark:text-orange-400">{isEnglish ? "Recent Evaluations" : "Evaluaciones Recientes"}</CardTitle>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow className="border-orange-200 dark:border-orange-800">

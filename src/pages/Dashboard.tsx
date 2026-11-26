@@ -202,7 +202,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
           {/* Ver Evaluaciones */}
           <Card 
-            className="border-yellow-200 dark:border-yellow-800 shadow-lg hover:shadow-xl transition-all cursor-pointer hover:scale-105"
+            className="border-border shadow-sm hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.99]"
             onClick={() => navigate("/evaluaciones")}
           >
             <CardHeader>
@@ -220,7 +220,7 @@ export default function Dashboard() {
 
           {/* Ver Horarios */}
           <Card 
-            className="border-blue-200 dark:border-blue-800 shadow-lg hover:shadow-xl transition-all cursor-pointer hover:scale-105"
+            className="border-border shadow-sm hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.99]"
             onClick={() => navigate("/horarios")}
           >
             <CardHeader>
@@ -238,7 +238,7 @@ export default function Dashboard() {
 
           {/* Ver Pagos */}
           <Card 
-            className="border-green-200 dark:border-green-800 shadow-lg hover:shadow-xl transition-all cursor-pointer hover:scale-105"
+            className="border-border shadow-sm hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.99]"
             onClick={() => navigate("/pagos")}
           >
             <CardHeader>
@@ -256,7 +256,7 @@ export default function Dashboard() {
 
           {/* Configuración */}
           <Card 
-            className="border-purple-200 dark:border-purple-800 shadow-lg hover:shadow-xl transition-all cursor-pointer hover:scale-105"
+            className="border-border shadow-sm hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.99]"
             onClick={() => navigate("/configuracion")}
           >
             <CardHeader>
@@ -429,8 +429,8 @@ export default function Dashboard() {
       {/* Estadísticas - Solo para usuarios con permisos avanzados */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         {/* Tarjeta Alumnos */}
-        <Card 
-          className="border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-xl transition-all cursor-pointer hover:scale-105"
+        <Card
+          className="border-border shadow-sm hover:shadow-md transition-all cursor-pointer hover:-translate-y-0.5 active:scale-[0.99]"
           onClick={() => navigate("/alumnos")}
         >
           <CardHeader>

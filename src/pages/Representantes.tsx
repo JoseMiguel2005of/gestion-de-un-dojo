@@ -10,13 +10,14 @@ import { toast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { RepresentanteForm } from "@/components/forms/RepresentanteForm";
 import { RepresentanteEditForm } from "@/components/forms/RepresentanteEditForm";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { useLanguage, getTranslation } from "@/hooks/useLanguage";
+import { useLanguage } from "@/hooks/useLanguage";
 
 export default function Representantes() {
   const { user } = useAuth();
   const { isEnglish } = useLanguage();
-  const isAdmin = user?.rol === 'admin';
+  const isAdmin = user?.rol === "admin";
   const [representantes, setRepresentantes] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
@@ -24,6 +25,7 @@ export default function Representantes() {
   const [editDialogOpen, setEditDialogOpen] = useState(false);
   const [selectedRepresentanteId, setSelectedRepresentanteId] = useState<string | null>(null);
   const [searchType, setSearchType] = useState<"nombre" | "cedula">("nombre");
+  const [eliminarId, setEliminarId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchRepresentantes();
@@ -31,11 +33,11 @@ export default function Representantes() {
 
   const fetchRepresentantes = async () => {
     try {
-      const representantes = await apiClient.getRepresentantes();
-      setRepresentantes(representantes || []);
-    } catch (error: any) {
+      const data = await apiClient.getRepresentantes();
+      setRepresentantes(data || []);
+    } catch {
       toast({
-        title: isEnglish ? "Error" : "Error",
+        title: "Error",
         description: isEnglish ? "Could not load representatives" : "No se pudieron cargar los representantes",
         variant: "destructive",
       });
@@ -56,11 +58,13 @@ export default function Representantes() {
     setEditDialogOpen(true);
   };
 
-  const handleDelete = async (representanteId: string) => {
-    if (!confirm(isEnglish ? 'Are you sure you want to delete this representative? This action cannot be undone.' : '¿Estás seguro de eliminar este representante? Esta acción no se puede deshacer.')) return;
-    
+  const handleConfirmDelete = async () => {
+    if (!eliminarId) return;
+    const id = eliminarId;
+    setEliminarId(null);
+
     try {
-      await apiClient.delete(`/representantes/${representanteId}`);
+      await apiClient.delete(`/representantes/${id}`);
       toast({
         title: isEnglish ? "Representative deleted" : "Representante eliminado",
         description: isEnglish ? "Representative deleted successfully" : "El representante se eliminó correctamente",
@@ -68,7 +72,7 @@ export default function Representantes() {
       fetchRepresentantes();
     } catch (error: any) {
       toast({
-        title: isEnglish ? "Error" : "Error",
+        title: "Error",
         description: error.message || (isEnglish ? "Could not delete representative" : "No se pudo eliminar el representante"),
         variant: "destructive",
       });
@@ -77,14 +81,20 @@ export default function Representantes() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold">{isEnglish ? "Representative" : "Gestión"} <span className="text-green-600 dark:text-green-400">{isEnglish ? "Management" : "de Representantes"}</span></h2>
-          <p className="text-gray-600 dark:text-gray-300 mt-1">{isEnglish ? "Manage student representatives" : "Administra los representantes de los alumnos"}</p>
+          <h2 className="text-3xl font-bold text-foreground">
+            {isEnglish ? "Representative Management" : "Gestión de Representantes"}
+          </h2>
+          <p className="text-muted-foreground mt-1">
+            {isEnglish
+              ? "Manage legal guardians for minor students"
+              : "Administra los representantes legales de los alumnos menores de edad"}
+          </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="gap-2 bg-green-600 hover:bg-green-700 text-white">
+            <Button className="gap-2 active:scale-[0.98]">
               <Plus className="h-4 w-4" />
               {isEnglish ? "Register Representative" : "Registrar Representante"}
             </Button>
@@ -93,7 +103,9 @@ export default function Representantes() {
             <DialogHeader>
               <DialogTitle>{isEnglish ? "Register New Representative" : "Registrar Nuevo Representante"}</DialogTitle>
               <DialogDescription>
-                {isEnglish ? "Complete the form to register a new representative." : "Completa el formulario para registrar un nuevo representante."}
+                {isEnglish
+                  ? "Complete the form to register a legal guardian."
+                  : "Completa el formulario para registrar un representante legal."}
               </DialogDescription>
             </DialogHeader>
             <RepresentanteForm
@@ -106,18 +118,20 @@ export default function Representantes() {
         </Dialog>
       </div>
 
-      <Card className="border-green-200 dark:border-green-800 bg-gradient-to-br from-green-50 to-green-100/30 dark:from-green-950/30 dark:to-green-900/20">
-        <CardHeader>
+      <Card>
+        <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
-            <Search className="h-5 w-5 text-green-600 dark:text-green-400" />
-            <CardTitle className="text-green-700 dark:text-green-400">{isEnglish ? "Search Representative" : "Buscar Representante"}</CardTitle>
+            <Search className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">{isEnglish ? "Search Representative" : "Buscar Representante"}</CardTitle>
           </div>
-          <CardDescription className="text-gray-600 dark:text-gray-300">{isEnglish ? "Find representatives by name, last name or ID" : "Encuentra representantes por nombre, apellido o cédula"}</CardDescription>
+          <CardDescription>
+            {isEnglish ? "Find representatives by name, last name, or ID" : "Encuentra representantes por nombre, apellido o cédula"}
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="flex gap-4">
-            <Select value={searchType} onValueChange={(value: any) => setSearchType(value)}>
-              <SelectTrigger className="w-[180px] border-green-300">
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Select value={searchType} onValueChange={(value: "nombre" | "cedula") => setSearchType(value)}>
+              <SelectTrigger className="w-full sm:w-[190px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -126,35 +140,43 @@ export default function Representantes() {
               </SelectContent>
             </Select>
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-green-400" />
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={searchType === "nombre" ? (isEnglish ? "Search by name..." : "Buscar por nombre...") : (isEnglish ? "Search by ID..." : "Buscar por cédula...")}
+                placeholder={
+                  searchType === "nombre"
+                    ? isEnglish
+                      ? "Search by name..."
+                      : "Buscar por nombre..."
+                    : isEnglish
+                      ? "Search by ID..."
+                      : "Buscar por cédula..."
+                }
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 border-green-300 focus:border-green-500"
+                className="pl-10"
               />
             </div>
           </div>
         </CardContent>
       </Card>
 
-      <Card className="border-gray-200 dark:border-gray-700">
-        <CardHeader className="bg-gradient-to-r from-green-50 to-white dark:from-green-950/30 dark:to-gray-800">
-          <CardTitle className="text-green-700 dark:text-green-400">{isEnglish ? "Representative List" : "Lista de Representantes"}</CardTitle>
-          <CardDescription className="flex items-center gap-2 text-green-600 dark:text-green-400">
+      <Card>
+        <CardHeader>
+          <CardTitle>{isEnglish ? "Representative List" : "Lista de Representantes"}</CardTitle>
+          <CardDescription className="flex items-center gap-2">
             <Users className="h-4 w-4" />
             {filteredRepresentantes.length} {isEnglish ? "representative(s) found" : "representante(s) encontrado(s)"}
           </CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
-              <TableRow className="border-gray-200 dark:border-gray-700">
-                <TableHead className="text-gray-700 dark:text-gray-300">{isEnglish ? "ID" : "Cédula"}</TableHead>
-                <TableHead className="text-gray-700 dark:text-gray-300">{isEnglish ? "Name" : "Nombre"}</TableHead>
-                <TableHead className="text-gray-700 dark:text-gray-300">{isEnglish ? "Phone" : "Teléfono"}</TableHead>
-                <TableHead className="text-gray-700 dark:text-gray-300">{isEnglish ? "Email" : "Email"}</TableHead>
-                <TableHead className="text-gray-700 dark:text-gray-300">{isEnglish ? "Actions" : "Acciones"}</TableHead>
+              <TableRow>
+                <TableHead>{isEnglish ? "ID" : "Cédula"}</TableHead>
+                <TableHead>{isEnglish ? "Name" : "Nombre"}</TableHead>
+                <TableHead>{isEnglish ? "Phone" : "Teléfono"}</TableHead>
+                <TableHead>{isEnglish ? "Email" : "Email"}</TableHead>
+                <TableHead className="text-right">{isEnglish ? "Actions" : "Acciones"}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -172,30 +194,25 @@ export default function Representantes() {
                 </TableRow>
               ) : (
                 filteredRepresentantes.map((rep) => (
-                  <TableRow key={rep.id} className="hover:bg-green-50/30 dark:hover:bg-green-950/20">
-                    <TableCell className="font-mono text-sm text-gray-700 dark:text-gray-300">{rep.cedula || "N/A"}</TableCell>
-                    <TableCell className="font-medium">
+                  <TableRow key={rep.id}>
+                    <TableCell className="font-mono text-sm text-muted-foreground">{rep.cedula || "N/A"}</TableCell>
+                    <TableCell className="font-semibold text-foreground">
                       {[rep.nombre, rep.apellido].filter(Boolean).join(" ")}
                     </TableCell>
-                    <TableCell className="text-gray-700 dark:text-gray-300">{rep.telefono || "-"}</TableCell>
-                    <TableCell className="text-blue-600 dark:text-blue-400">{rep.email || "-"}</TableCell>
-                    <TableCell>
-                      <div className="flex gap-2">
-                        <Button 
-                          variant="outline" 
-                          size="sm" 
-                          onClick={() => handleEdit(rep.id)}
-                          className="border-gray-300"
-                        >
+                    <TableCell>{rep.telefono || "-"}</TableCell>
+                    <TableCell className="text-muted-foreground">{rep.email || "-"}</TableCell>
+                    <TableCell className="text-right">
+                      <div className="flex justify-end gap-2">
+                        <Button variant="outline" size="sm" onClick={() => handleEdit(String(rep.id))}>
                           <Edit className="h-4 w-4 mr-1" />
                           {isEnglish ? "Edit" : "Editar"}
                         </Button>
                         {isAdmin && (
-                          <Button 
-                            variant="outline" 
-                            size="sm" 
-                            onClick={() => handleDelete(rep.id)}
-                            className="border-red-300 hover:bg-red-50 dark:hover:bg-red-950/20 text-red-600"
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setEliminarId(String(rep.id))}
+                            className="text-destructive border-destructive/40 hover:bg-destructive/10"
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -229,6 +246,22 @@ export default function Representantes() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(eliminarId)}
+        onOpenChange={(open) => {
+          if (!open) setEliminarId(null);
+        }}
+        title={isEnglish ? "Delete Representative" : "Eliminar Representante"}
+        description={
+          isEnglish
+            ? "Are you sure you want to delete this representative? This action cannot be undone."
+            : "¿Estás seguro de eliminar este representante? Esta acción no se puede deshacer."
+        }
+        confirmText={isEnglish ? "Delete" : "Eliminar"}
+        cancelText={isEnglish ? "Cancel" : "Cancelar"}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 }

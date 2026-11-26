@@ -14,6 +14,7 @@ import { toast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { NivelForm, CINTAS_CANONICAS } from "@/components/forms/NivelForm";
 import { NivelEditForm } from "@/components/forms/NivelEditForm";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { useLanguage, translateBelt } from "@/hooks/useLanguage";
 import { hasRoleAccess, ACADEMIC_ROLES } from "@/config/permissions";
 
@@ -43,6 +44,7 @@ export default function Niveles() {
     nivel_dan: 1,
   });
   const [savingCinta, setSavingCinta] = useState(false);
+  const [confirmTarget, setConfirmTarget] = useState<{ tipo: "categoria" | "cinta"; id: string } | null>(null);
 
   const fetchCatalogos = async () => {
     setLoading(true);
@@ -73,30 +75,8 @@ export default function Niveles() {
     setEditDialogOpen(true);
   };
 
-  const handleDeleteCategoria = async (id: string) => {
-    if (
-      !confirm(
-        isEnglish
-          ? "Are you sure you want to delete this age category?"
-          : "¿Estás seguro de eliminar esta categoría de edad?"
-      )
-    )
-      return;
-
-    try {
-      await apiClient.deleteCategoriaEdad(id);
-      toast({
-        title: isEnglish ? "Category deleted" : "Categoría eliminada",
-        description: isEnglish ? "Category removed successfully" : "La categoría fue eliminada correctamente",
-      });
-      fetchCatalogos();
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
+  const handleDeleteCategoria = (id: string) => {
+    setConfirmTarget({ tipo: "categoria", id });
   };
 
   const openCreateCinta = () => {
@@ -174,21 +154,28 @@ export default function Niveles() {
     }
   };
 
-  const handleDeleteCinta = async (cintaId: string) => {
-    if (
-      !confirm(
-        isEnglish
-          ? "Are you sure you want to delete this belt?"
-          : "¿Estás seguro de eliminar esta cinta?"
-      )
-    )
-      return;
+  const handleDeleteCinta = (cintaId: string) => {
+    setConfirmTarget({ tipo: "cinta", id: cintaId });
+  };
+
+  const ejecutarEliminacionConfirmada = async () => {
+    if (!confirmTarget) return;
+    const { tipo, id } = confirmTarget;
+    setConfirmTarget(null);
 
     try {
-      await apiClient.deleteCinta(cintaId);
-      toast({
-        title: isEnglish ? "Belt deleted" : "Cinta eliminada",
-      });
+      if (tipo === "categoria") {
+        await apiClient.deleteCategoriaEdad(id);
+        toast({
+          title: isEnglish ? "Category deleted" : "Categoría eliminada",
+          description: isEnglish ? "Category removed successfully" : "La categoría fue eliminada correctamente",
+        });
+      } else {
+        await apiClient.deleteCinta(id);
+        toast({
+          title: isEnglish ? "Belt deleted" : "Cinta eliminada",
+        });
+      }
       fetchCatalogos();
     } catch (error: any) {
       toast({
@@ -567,6 +554,34 @@ export default function Niveles() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(confirmTarget)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmTarget(null);
+        }}
+        title={
+          confirmTarget?.tipo === "categoria"
+            ? isEnglish
+              ? "Delete Age Category"
+              : "Eliminar Categoría de Edad"
+            : isEnglish
+              ? "Delete Belt"
+              : "Eliminar Cinta"
+        }
+        description={
+          confirmTarget?.tipo === "categoria"
+            ? isEnglish
+              ? "Are you sure you want to delete this age category? Categories with enrolled students cannot be deleted."
+              : "¿Estás seguro de eliminar esta categoría de edad? Las categorías con alumnos asignados no pueden eliminarse."
+            : isEnglish
+              ? "Are you sure you want to delete this belt?"
+              : "¿Estás seguro de eliminar esta cinta oficial?"
+        }
+        confirmText={isEnglish ? "Delete" : "Eliminar"}
+        cancelText={isEnglish ? "Cancel" : "Cancelar"}
+        onConfirm={ejecutarEliminacionConfirmada}
+      />
     </div>
   );
 }

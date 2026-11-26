@@ -36,6 +36,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { EvaluacionForm } from "@/components/forms/EvaluacionForm";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { calculateExamTimeInfo } from "@/utils/timeUtils";
 import { useLanguage, getTranslation, translateBelt } from "@/hooks/useLanguage";
 
@@ -82,6 +83,7 @@ export default function Evaluaciones() {
   const [borradorCalificaciones, setBorradorCalificaciones] = useState<Record<number, DraftCalificacion>>({});
   const [completarAlGuardar, setCompletarAlGuardar] = useState(true);
   const [guardandoCalificaciones, setGuardandoCalificaciones] = useState(false);
+  const [evaluacionEliminarId, setEvaluacionEliminarId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchEvaluaciones();
@@ -130,19 +132,17 @@ export default function Evaluaciones() {
     }
   };
 
-  const handleDelete = async (evaluacionId: string) => {
-    if (
-      !confirm(
-        isEnglish
-          ? "Are you sure you want to delete this evaluation? This action cannot be undone."
-          : "¿Estás seguro de eliminar esta evaluación? Esta acción no se puede deshacer."
-      )
-    ) {
-      return;
-    }
+  const handleDelete = (evaluacionId: string) => {
+    setEvaluacionEliminarId(String(evaluacionId));
+  };
+
+  const ejecutarEliminarEvaluacion = async () => {
+    if (!evaluacionEliminarId) return;
+    const id = evaluacionEliminarId;
+    setEvaluacionEliminarId(null);
 
     try {
-      await apiClient.delete(`/evaluaciones/${evaluacionId}`);
+      await apiClient.delete(`/evaluaciones/${id}`);
       toast({
         title: isEnglish ? "Evaluation deleted" : "Evaluación eliminada",
         description: isEnglish ? "Evaluation deleted successfully" : "La evaluación se eliminó correctamente",
@@ -1050,6 +1050,22 @@ export default function Evaluaciones() {
           )}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(evaluacionEliminarId)}
+        onOpenChange={(open) => {
+          if (!open) setEvaluacionEliminarId(null);
+        }}
+        title={isEnglish ? "Delete Evaluation" : "Eliminar Evaluación"}
+        description={
+          isEnglish
+            ? "Are you sure you want to delete this evaluation? Evaluations with graded results cannot be deleted."
+            : "¿Estás seguro de eliminar esta evaluación? Las evaluaciones que ya tienen resultados calificados están protegidas."
+        }
+        confirmText={isEnglish ? "Delete" : "Eliminar"}
+        cancelText={isEnglish ? "Cancel" : "Cancelar"}
+        onConfirm={ejecutarEliminarEvaluacion}
+      />
     </div>
   );
 }

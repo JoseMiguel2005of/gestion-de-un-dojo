@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { GlassCard, GlassCardContent, GlassCardDescription, GlassCardHeader, GlassCardTitle } from "@/components/ui/glass-card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Edit, Eye, Users, Trash2, RotateCcw, XCircle } from "lucide-react";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -11,15 +11,22 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { AlumnoForm } from "@/components/forms/AlumnoForm";
 import { AlumnoEditForm } from "@/components/forms/AlumnoEditForm";
 import { AlumnoDetalle } from "@/components/AlumnoDetalle";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { useLanguage, getTranslation, translateBelt } from "@/hooks/useLanguage";
+import { useLanguage, translateBelt } from "@/hooks/useLanguage";
+
+interface AccionPendienteAlumno {
+  tipo: "eliminar" | "restaurar" | "eliminar_permanente";
+  id: string;
+  nombre?: string;
+}
 
 export default function Alumnos() {
   const { user } = useAuth();
   const { isEnglish } = useLanguage();
-  const isAdmin = user?.rol === 'admin';
+  const isAdmin = user?.rol === "admin";
   const [alumnos, setAlumnos] = useState<any[]>([]);
   const [alumnosEliminados, setAlumnosEliminados] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
@@ -30,10 +37,11 @@ export default function Alumnos() {
   const [selectedAlumnoId, setSelectedAlumnoId] = useState<string | null>(null);
   const [searchType, setSearchType] = useState<"nombre" | "cedula">("nombre");
   const [activeTab, setActiveTab] = useState("activos");
+  const [accionConfirmar, setAccionConfirmar] = useState<AccionPendienteAlumno | null>(null);
 
   useEffect(() => {
     fetchAlumnos();
-    fetchAlumnosEliminados(); // Cargar eliminados al inicio
+    fetchAlumnosEliminados();
   }, []);
 
   useEffect(() => {
@@ -44,12 +52,12 @@ export default function Alumnos() {
 
   const fetchAlumnos = async () => {
     try {
-      const alumnos = await apiClient.getAlumnos();
-      setAlumnos(alumnos || []);
-    } catch (error: any) {
+      const data = await apiClient.getAlumnos();
+      setAlumnos(data || []);
+    } catch {
       toast({
         title: "Error",
-        description: "No se pudieron cargar los alumnos",
+        description: isEnglish ? "Could not load students" : "No se pudieron cargar los alumnos",
         variant: "destructive",
       });
     } finally {
@@ -61,10 +69,10 @@ export default function Alumnos() {
     try {
       const eliminados = await apiClient.getAlumnosEliminados();
       setAlumnosEliminados(eliminados || []);
-    } catch (error: any) {
+    } catch {
       toast({
         title: "Error",
-        description: "No se pudieron cargar los alumnos eliminados",
+        description: isEnglish ? "Could not load archived students" : "No se pudieron cargar los alumnos archivados",
         variant: "destructive",
       });
     }
@@ -87,100 +95,42 @@ export default function Alumnos() {
     setDetalleDialogOpen(true);
   };
 
-  const handleDelete = async (alumnoId: string) => {
-    if (!confirm(isEnglish ? 'Are you sure you want to delete this student? You can restore it from the "Deleted" tab.' : '¿Estás seguro de eliminar este alumno? Podrás restaurarlo desde la pestaña "Eliminados".')) return;
-    
+  const ejecutarAccionConfirmada = async () => {
+    if (!accionConfirmar) return;
+    const { tipo, id } = accionConfirmar;
+    setAccionConfirmar(null);
+
     try {
-      await apiClient.deleteAlumno(alumnoId);
-      toast({
-        title: isEnglish ? "Student deleted" : "Alumno eliminado",
-        description: isEnglish ? "Student moved to deleted" : "El alumno se movió a eliminados",
-      });
-      fetchAlumnos();
-      fetchAlumnosEliminados(); // Actualizar contador de eliminados
+      if (tipo === "eliminar") {
+        await apiClient.deleteAlumno(id);
+        toast({
+          title: isEnglish ? "Student archived" : "Alumno desactivado",
+          description: isEnglish ? "Student moved to archived tab" : "El alumno se movió a la pestaña de eliminados",
+        });
+        fetchAlumnos();
+        fetchAlumnosEliminados();
+      } else if (tipo === "restaurar") {
+        await apiClient.restaurarAlumno(id);
+        toast({
+          title: isEnglish ? "Student restored" : "Alumno restaurado",
+          description: isEnglish ? "Student restored successfully" : "El alumno fue restaurado exitosamente",
+        });
+        fetchAlumnosEliminados();
+        fetchAlumnos();
+      } else if (tipo === "eliminar_permanente") {
+        await apiClient.deleteAlumnoPermanente(id);
+        toast({
+          title: isEnglish ? "Student permanently deleted" : "Alumno eliminado permanentemente",
+          description: isEnglish
+            ? "All records associated with the student were removed"
+            : "El registro fue eliminado definitivamente de la base de datos",
+        });
+        fetchAlumnosEliminados();
+      }
     } catch (error: any) {
       toast({
-        title: isEnglish ? "Error" : "Error",
-        description: error.message || (isEnglish ? "Could not delete student" : "No se pudo eliminar el alumno"),
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleRestore = async (alumnoId: string) => {
-    if (!confirm(isEnglish ? 'Restore this student?' : '¿Restaurar este alumno?')) return;
-    
-    try {
-      await apiClient.restaurarAlumno(alumnoId);
-      toast({
-        title: isEnglish ? "Student restored" : "Alumno restaurado",
-        description: isEnglish ? "Student restored successfully" : "El alumno se restauró exitosamente",
-      });
-      fetchAlumnosEliminados();
-      fetchAlumnos();
-    } catch (error: any) {
-      toast({
-        title: isEnglish ? "Error" : "Error",
-        description: error.message || (isEnglish ? "Could not restore student" : "No se pudo restaurar el alumno"),
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleDeletePermanente = async (alumnoId: string, nombreAlumno: string) => {
-    if (!confirm(
-      isEnglish 
-        ? `⚠️ WARNING: This action is IRREVERSIBLE!\n\nYou are about to PERMANENTLY DELETE student "${nombreAlumno}".\n\nAll their records, payments, and evaluations will be deleted forever.\n\nAre you absolutely sure?`
-        : `⚠️ ADVERTENCIA: ¡Esta acción es IRREVERSIBLE!\n\nEstás a punto de ELIMINAR PERMANENTEMENTE al alumno "${nombreAlumno}".\n\nTodos sus registros, pagos y evaluaciones se eliminarán para siempre.\n\n¿Estás absolutamente seguro?`
-    )) return;
-    
-    try {
-      await apiClient.deleteAlumnoPermanente(alumnoId);
-      toast({
-        title: isEnglish ? "Student permanently deleted" : "Alumno eliminado permanentemente",
-        description: isEnglish ? "The student has been permanently deleted from the database" : "El alumno ha sido eliminado permanentemente de la base de datos",
-      });
-      fetchAlumnosEliminados();
-    } catch (error: any) {
-      toast({
-        title: isEnglish ? "Error" : "Error",
-        description: error.message || (isEnglish ? "Could not delete student permanently" : "No se pudo eliminar el alumno permanentemente"),
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleChangeNivel = async (alumnoId: string, categoriaEdadId: string) => {
-    try {
-      await apiClient.updateAlumno(alumnoId, { id_categoria_edad: categoriaEdadId });
-
-      toast({
-        title: isEnglish ? "Success" : "Éxito",
-        description: isEnglish ? "Level updated correctly" : "Nivel actualizado correctamente",
-      });
-      fetchAlumnos();
-    } catch (error: any) {
-      toast({
-        title: isEnglish ? "Error" : "Error",
-        description: error.message,
-        variant: "destructive",
-      });
-    }
-  };
-
-  const handleChangeEstado = async (alumnoId: string, estado: boolean) => {
-    try {
-      await apiClient.updateAlumno(alumnoId, { estado: Boolean(estado) });
-
-      toast({
-        title: isEnglish ? "Success" : "Éxito",
-        description: isEnglish ? `Student marked as ${estado ? "active" : "inactive"}` : `Alumno marcado como ${estado ? "activo" : "inactivo"}`,
-      });
-      fetchAlumnos();
-    } catch (error: any) {
-      toast({
-        title: isEnglish ? "Error" : "Error",
-        description: error.message,
+        title: "Error",
+        description: error.message || (isEnglish ? "Operation failed" : "No se pudo completar la acción"),
         variant: "destructive",
       });
     }
@@ -188,14 +138,18 @@ export default function Alumnos() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-3xl font-bold text-white">{isEnglish ? "Student" : "Gestión"} <span className="bg-gradient-to-r from-purple-400 to-pink-400 bg-clip-text text-transparent">{isEnglish ? "Management" : "de Alumnos"}</span></h2>
-          <p className="text-indigo-200 mt-1">{isEnglish ? "Manage dojo students" : "Administra los estudiantes del dojo"}</p>
+          <h2 className="text-3xl font-bold text-foreground">
+            {isEnglish ? "Student Management" : "Gestión de Alumnos"}
+          </h2>
+          <p className="text-muted-foreground mt-1">
+            {isEnglish ? "Manage active and archived dojo students" : "Administra la matrícula activa e histórica del dojo"}
+          </p>
         </div>
         <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
           <DialogTrigger asChild>
-            <Button className="gap-2 bg-gradient-to-r from-purple-500 via-pink-500 to-red-500 hover:from-purple-600 hover:via-pink-600 hover:to-red-600 text-white shadow-xl shadow-purple-500/30">
+            <Button className="gap-2 active:scale-[0.98]">
               <Plus className="h-4 w-4" />
               {isEnglish ? "Register Student" : "Registrar Alumno"}
             </Button>
@@ -204,7 +158,9 @@ export default function Alumnos() {
             <DialogHeader>
               <DialogTitle>{isEnglish ? "Register New Student" : "Registrar Nuevo Alumno"}</DialogTitle>
               <DialogDescription>
-                {isEnglish ? "Complete the form to register a new student in the dojo." : "Completa el formulario para registrar un nuevo alumno en el dojo."}
+                {isEnglish
+                  ? "Complete the form to register a new student in the dojo."
+                  : "Completa el formulario para inscribir un nuevo alumno en el dojo."}
               </DialogDescription>
             </DialogHeader>
             <AlumnoForm
@@ -217,18 +173,20 @@ export default function Alumnos() {
         </Dialog>
       </div>
 
-      <GlassCard>
-        <GlassCardHeader>
+      <Card>
+        <CardHeader className="pb-3">
           <div className="flex items-center gap-2">
-            <Search className="h-5 w-5 text-purple-300" />
-            <GlassCardTitle>{isEnglish ? "Search Student" : "Buscar Alumno"}</GlassCardTitle>
+            <Search className="h-5 w-5 text-primary" />
+            <CardTitle className="text-lg">{isEnglish ? "Search Student" : "Buscar Alumno"}</CardTitle>
           </div>
-          <GlassCardDescription>{isEnglish ? "Find students by name, last name or ID" : "Encuentra alumnos por nombre, apellido o cédula"}</GlassCardDescription>
-        </GlassCardHeader>
-        <GlassCardContent>
-          <div className="flex gap-4">
-            <Select value={searchType} onValueChange={(value: any) => setSearchType(value)}>
-              <SelectTrigger className="w-[180px] bg-white/10 border-white/30 text-white">
+          <CardDescription>
+            {isEnglish ? "Filter students by full name or ID document" : "Filtra alumnos por nombre completo o documento de identidad"}
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Select value={searchType} onValueChange={(value: "nombre" | "cedula") => setSearchType(value)}>
+              <SelectTrigger className="w-full sm:w-[190px]">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -237,106 +195,131 @@ export default function Alumnos() {
               </SelectContent>
             </Select>
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-purple-300" />
+              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
               <Input
-                placeholder={searchType === "nombre" ? (isEnglish ? "Search by name..." : "Buscar por nombre...") : (isEnglish ? "Search by ID..." : "Buscar por cédula...")}
+                placeholder={
+                  searchType === "nombre"
+                    ? isEnglish
+                      ? "Search by name..."
+                      : "Buscar por nombre..."
+                    : isEnglish
+                      ? "Search by ID..."
+                      : "Buscar por cédula..."
+                }
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 bg-white/10 border-white/30 text-white placeholder:text-indigo-300"
+                className="pl-10"
               />
             </div>
           </div>
-        </GlassCardContent>
-      </GlassCard>
+        </CardContent>
+      </Card>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-2 mb-4">
+        <TabsList className="grid w-full max-w-md grid-cols-2 mb-4">
           <TabsTrigger value="activos">
             {isEnglish ? "Active Students" : "Alumnos Activos"} ({filteredAlumnos.length})
           </TabsTrigger>
           <TabsTrigger value="eliminados">
-            {isEnglish ? "Deleted" : "Eliminados"} ({alumnosEliminados.length})
+            {isEnglish ? "Archived" : "Eliminados"} ({alumnosEliminados.length})
           </TabsTrigger>
         </TabsList>
 
         <TabsContent value="activos">
-          <GlassCard>
-            <GlassCardHeader>
-              <GlassCardTitle>{isEnglish ? "Student List" : "Lista de Alumnos"}</GlassCardTitle>
-              <GlassCardDescription className="flex items-center gap-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>{isEnglish ? "Student Roster" : "Nómina de Alumnos"}</CardTitle>
+              <CardDescription className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
                 {filteredAlumnos.length} {isEnglish ? "student(s) found" : "alumno(s) encontrado(s)"}
-              </GlassCardDescription>
-            </GlassCardHeader>
-            <GlassCardContent>
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/20 hover:bg-white/5">
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "ID" : "Cédula"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Name" : "Nombre"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Category" : "Categoría"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Belt" : "Cinta"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Instructor" : "Instructor"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Status" : "Estado"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Actions" : "Acciones"}</TableHead>
+                  <TableRow>
+                    <TableHead>{isEnglish ? "ID" : "Cédula"}</TableHead>
+                    <TableHead>{isEnglish ? "Name" : "Nombre"}</TableHead>
+                    <TableHead>{isEnglish ? "Category" : "Categoría"}</TableHead>
+                    <TableHead>{isEnglish ? "Belt" : "Cinta"}</TableHead>
+                    <TableHead>{isEnglish ? "Instructor" : "Instructor"}</TableHead>
+                    <TableHead>{isEnglish ? "Status" : "Estado"}</TableHead>
+                    <TableHead className="text-right">{isEnglish ? "Actions" : "Acciones"}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {loading ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-indigo-300">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         {isEnglish ? "Loading..." : "Cargando..."}
                       </TableCell>
                     </TableRow>
                   ) : filteredAlumnos.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={7} className="text-center py-8 text-indigo-300">
+                      <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
                         {isEnglish ? "No students registered" : "No hay alumnos registrados"}
                       </TableCell>
                     </TableRow>
                   ) : (
                     filteredAlumnos.map((alumno) => (
-                      <TableRow key={alumno.id} className="border-white/10 hover:bg-white/5">
-                        <TableCell className="font-mono text-sm text-white">{alumno.cedula || "N/A"}</TableCell>
-                        <TableCell className="font-medium text-white">
-                          {alumno.nombre}
+                      <TableRow key={alumno.id}>
+                        <TableCell className="font-mono text-sm text-muted-foreground">
+                          {alumno.cedula || "N/A"}
                         </TableCell>
-                        <TableCell className="text-purple-300 font-medium">{alumno.categoria_edad_nombre || (isEnglish ? "No category" : "Sin categoría")}</TableCell>
-                        <TableCell className="text-indigo-200">{alumno.cinta_nombre ? translateBelt(alumno.cinta_nombre, isEnglish) : "-"}</TableCell>
-                        <TableCell className="text-blue-300 font-medium">{alumno.instructor_nombre || (isEnglish ? "Not assigned" : "Sin asignar")}</TableCell>
+                        <TableCell className="font-semibold text-foreground">{alumno.nombre}</TableCell>
                         <TableCell>
-                          <Badge 
+                          {alumno.categoria_edad_nombre ? (
+                            <Badge variant="outline">{alumno.categoria_edad_nombre}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">
+                              {isEnglish ? "No category" : "Sin categoría"}
+                            </span>
+                          )}
+                        </TableCell>
+                        <TableCell className="font-medium">
+                          {alumno.cinta_nombre ? translateBelt(alumno.cinta_nombre, isEnglish) : "-"}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {alumno.instructor_nombre || (isEnglish ? "Unassigned" : "Sin asignar")}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
                             variant={alumno.estado ? "default" : "secondary"}
-                            className={alumno.estado ? "bg-gradient-to-r from-green-500 to-emerald-500 text-white" : "bg-gray-500"}
+                            className={alumno.estado ? "bg-emerald-600 hover:bg-emerald-700 text-white" : ""}
                           >
-                            {alumno.estado ? (isEnglish ? "Active" : "Activo") : (isEnglish ? "Inactive" : "Inactivo")}
+                            {alumno.estado ? (isEnglish ? "Active" : "Activo") : isEnglish ? "Inactive" : "Inactivo"}
                           </Badge>
                         </TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button 
-                              variant="ghost" 
-                              size="sm" 
-                              onClick={() => handleDetalle(alumno.id)}
-                              className="hover:bg-white/20 text-white"
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDetalle(String(alumno.id))}
+                              title={isEnglish ? "View file" : "Ver ficha"}
                             >
                               <Eye className="h-4 w-4" />
                             </Button>
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => handleEdit(alumno.id)}
-                              className="border-white/30 bg-white/10 hover:bg-white/20 text-white"
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleEdit(String(alumno.id))}
                             >
                               <Edit className="h-4 w-4 mr-1" />
                               {isEnglish ? "Edit" : "Editar"}
                             </Button>
                             {isAdmin && (
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => handleDelete(alumno.id)}
-                                className="border-red-400/50 bg-red-500/20 hover:bg-red-500/30 text-red-300"
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() =>
+                                  setAccionConfirmar({
+                                    tipo: "eliminar",
+                                    id: String(alumno.id),
+                                    nombre: alumno.nombre,
+                                  })
+                                }
+                                className="text-destructive border-destructive/40 hover:bg-destructive/10"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -348,63 +331,73 @@ export default function Alumnos() {
                   )}
                 </TableBody>
               </Table>
-            </GlassCardContent>
-          </GlassCard>
+            </CardContent>
+          </Card>
         </TabsContent>
 
         <TabsContent value="eliminados">
-          <GlassCard>
-            <GlassCardHeader>
-              <GlassCardTitle>{isEnglish ? "Deleted Students" : "Alumnos Eliminados"}</GlassCardTitle>
-              <GlassCardDescription className="flex items-center gap-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>{isEnglish ? "Archived Students" : "Alumnos Eliminados"}</CardTitle>
+              <CardDescription className="flex items-center gap-2">
                 <Trash2 className="h-4 w-4" />
-                {alumnosEliminados.length} {isEnglish ? "student(s) deleted" : "alumno(s) eliminado(s)"}
-              </GlassCardDescription>
-            </GlassCardHeader>
-            <GlassCardContent>
+                {alumnosEliminados.length} {isEnglish ? "archived student(s)" : "alumno(s) desactivado(s)"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
-                  <TableRow className="border-white/20 hover:bg-white/5">
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "ID" : "Cédula"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Name" : "Nombre"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Category" : "Categoría"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Instructor" : "Instructor"}</TableHead>
-                    <TableHead className="text-indigo-200 font-semibold">{isEnglish ? "Actions" : "Acciones"}</TableHead>
+                  <TableRow>
+                    <TableHead>{isEnglish ? "ID" : "Cédula"}</TableHead>
+                    <TableHead>{isEnglish ? "Name" : "Nombre"}</TableHead>
+                    <TableHead>{isEnglish ? "Category" : "Categoría"}</TableHead>
+                    <TableHead>{isEnglish ? "Instructor" : "Instructor"}</TableHead>
+                    <TableHead className="text-right">{isEnglish ? "Actions" : "Acciones"}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {alumnosEliminados.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={5} className="text-center py-8 text-indigo-300">
-                        {isEnglish ? "No deleted students" : "No hay alumnos eliminados"}
+                      <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                        {isEnglish ? "No archived students" : "No hay alumnos eliminados"}
                       </TableCell>
                     </TableRow>
                   ) : (
                     alumnosEliminados.map((alumno) => (
-                      <TableRow key={alumno.id} className="border-white/10 hover:bg-white/5">
-                        <TableCell className="font-mono text-sm text-white">{alumno.cedula || "N/A"}</TableCell>
-                        <TableCell className="font-medium text-white">
-                          {alumno.nombre}
+                      <TableRow key={alumno.id}>
+                        <TableCell className="font-mono text-sm text-muted-foreground">
+                          {alumno.cedula || "N/A"}
                         </TableCell>
-                        <TableCell className="text-purple-300 font-medium">{alumno.categoria_edad_nombre || (isEnglish ? "No category" : "Sin categoría")}</TableCell>
-                        <TableCell className="text-blue-300 font-medium">{alumno.instructor_nombre || (isEnglish ? "Not assigned" : "Sin asignar")}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            <Button 
-                              variant="outline" 
-                              size="sm" 
-                              onClick={() => handleRestore(alumno.id)}
-                              className="border-green-400/50 bg-green-500/20 hover:bg-green-500/30 text-green-300"
+                        <TableCell className="font-medium">{alumno.nombre}</TableCell>
+                        <TableCell>{alumno.categoria_edad_nombre || "-"}</TableCell>
+                        <TableCell>{alumno.instructor_nombre || "-"}</TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setAccionConfirmar({
+                                  tipo: "restaurar",
+                                  id: String(alumno.id),
+                                  nombre: alumno.nombre,
+                                })
+                              }
                             >
                               <RotateCcw className="h-4 w-4 mr-1" />
                               {isEnglish ? "Restore" : "Restaurar"}
                             </Button>
                             {isAdmin && (
-                              <Button 
-                                variant="outline" 
-                                size="sm" 
-                                onClick={() => handleDeletePermanente(alumno.id, alumno.nombre)}
-                                className="border-red-600/50 bg-red-600/20 hover:bg-red-600/40 text-red-400"
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={() =>
+                                  setAccionConfirmar({
+                                    tipo: "eliminar_permanente",
+                                    id: String(alumno.id),
+                                    nombre: alumno.nombre,
+                                  })
+                                }
                               >
                                 <XCircle className="h-4 w-4 mr-1" />
                                 {isEnglish ? "Delete Forever" : "Eliminar Definitivamente"}
@@ -417,8 +410,8 @@ export default function Alumnos() {
                   )}
                 </TableBody>
               </Table>
-            </GlassCardContent>
-          </GlassCard>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 
@@ -427,7 +420,7 @@ export default function Alumnos() {
           <DialogHeader>
             <DialogTitle>{isEnglish ? "Edit Student" : "Editar Alumno"}</DialogTitle>
             <DialogDescription>
-              {isEnglish ? "Modify student data" : "Modifica los datos del alumno"}
+              {isEnglish ? "Modify student information" : "Modifica los datos personales y académicos del alumno"}
             </DialogDescription>
           </DialogHeader>
           {selectedAlumnoId && (
@@ -445,11 +438,56 @@ export default function Alumnos() {
       <Dialog open={detalleDialogOpen} onOpenChange={setDetalleDialogOpen}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{isEnglish ? "Student Details" : "Detalle del Alumno"}</DialogTitle>
+            <DialogTitle>{isEnglish ? "Student Details" : "Ficha del Alumno"}</DialogTitle>
           </DialogHeader>
           {selectedAlumnoId && <AlumnoDetalle alumnoId={selectedAlumnoId} />}
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={Boolean(accionConfirmar)}
+        onOpenChange={(open) => {
+          if (!open) setAccionConfirmar(null);
+        }}
+        title={
+          accionConfirmar?.tipo === "eliminar_permanente"
+            ? isEnglish
+              ? "Permanently Delete Student"
+              : "Eliminar Alumno Permanentemente"
+            : accionConfirmar?.tipo === "restaurar"
+              ? isEnglish
+                ? "Restore Student"
+                : "Restaurar Alumno"
+              : isEnglish
+                ? "Archive Student"
+                : "Desactivar Alumno"
+        }
+        description={
+          accionConfirmar?.tipo === "eliminar_permanente"
+            ? isEnglish
+              ? `This action is irreversible. Student "${accionConfirmar?.nombre || ""}" and all their payments, evaluations, and attendance records will be permanently deleted.`
+              : `Esta acción es irreversible. Se eliminará permanentemente al alumno "${accionConfirmar?.nombre || ""}" junto con sus pagos, evaluaciones y asistencias.`
+            : accionConfirmar?.tipo === "restaurar"
+              ? isEnglish
+                ? `Do you want to reactivate student "${accionConfirmar?.nombre || ""}"?`
+                : `¿Deseas reactivar al alumno "${accionConfirmar?.nombre || ""}" y su acceso al sistema?`
+              : isEnglish
+                ? `Do you want to archive "${accionConfirmar?.nombre || ""}"? You can restore them later from the Archived tab.`
+                : `¿Deseas mover a "${accionConfirmar?.nombre || ""}" a la pestaña de Eliminados? Podrás restaurarlo en cualquier momento.`
+        }
+        variant={accionConfirmar?.tipo === "restaurar" ? "default" : "destructive"}
+        confirmText={
+          accionConfirmar?.tipo === "restaurar"
+            ? isEnglish
+              ? "Restore"
+              : "Restaurar"
+            : isEnglish
+              ? "Confirm"
+              : "Confirmar"
+        }
+        cancelText={isEnglish ? "Cancel" : "Cancelar"}
+        onConfirm={ejecutarAccionConfirmada}
+      />
     </div>
   );
 }

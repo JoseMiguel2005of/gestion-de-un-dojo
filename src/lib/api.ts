@@ -549,6 +549,12 @@ class ApiClient {
     });
   }
 
+  async desbloquearUsuario(id: string | number) {
+    return this.request<{ message: string; success: boolean }>(`/usuarios/${id}/unlock`, {
+      method: 'POST',
+    });
+  }
+
   async cambiarPassword(password_actual: string, password_nueva: string) {
     return this.request<any>('/usuarios/cambiar-password', {
       method: 'PUT',

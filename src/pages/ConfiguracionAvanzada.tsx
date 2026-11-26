@@ -25,11 +25,14 @@ import {
   Upload,
   Key,
   Calendar,
-  AlertCircle
+  AlertCircle,
+  Unlock,
+  Power
 } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useLanguage, getTranslation } from "@/hooks/useLanguage";
+import { ConfirmDialog } from "@/components/ConfirmDialog";
 
 // Lista predefinida de días festivos comunes
 const diasFestivosComunes = [
@@ -115,6 +118,11 @@ export default function ConfiguracionAvanzada() {
   const [dialogPasswordAbierto, setDialogPasswordAbierto] = useState(false);
   const [dialogHorarioAbierto, setDialogHorarioAbierto] = useState(false);
   const [creandoHorario, setCreandoHorario] = useState(false);
+  const [confirmAdminAction, setConfirmAdminAction] = useState<{
+    tipo: "horario" | "festivo" | "logs" | "import_json";
+    id?: string;
+    archivo?: File;
+  } | null>(null);
 
   useEffect(() => {
     cargarDatos();
@@ -246,6 +254,42 @@ export default function ConfiguracionAvanzada() {
       toast({ title: "Contraseña cambiada exitosamente" });
       setDialogPasswordAbierto(false);
       setNuevaPassword({ password_actual: '', password_nueva: '', password_confirmar: '' });
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const cambiarRolUsuario = async (usuarioId: number | string, nuevoRol: string) => {
+    try {
+      await apiClient.updateUsuario(String(usuarioId), { rol: nuevoRol });
+      toast({ title: "Rol actualizado", description: `Nuevo rol asignado: ${nuevoRol}` });
+      cargarDatos();
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const toggleEstadoUsuario = async (usuarioObj: any) => {
+    try {
+      const nuevoEstado = !Boolean(usuarioObj.activo);
+      await apiClient.updateUsuario(String(usuarioObj.id), { activo: nuevoEstado });
+      toast({
+        title: nuevoEstado ? "Cuenta activada" : "Cuenta desactivada",
+        description: `${usuarioObj.nombre_completo || usuarioObj.username} ahora está ${nuevoEstado ? "activo" : "inactivo"}`,
+      });
+      cargarDatos();
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const desbloquearCuentaUsuario = async (usuarioObj: any) => {
+    try {
+      const resp = await apiClient.desbloquearUsuario(usuarioObj.id);
+      toast({
+        title: "Cuenta desbloqueada",
+        description: resp.message || `Se restableció el acceso de ${usuarioObj.username}`,
+      });
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -404,15 +448,8 @@ export default function ConfiguracionAvanzada() {
     }
   };
 
-  const eliminarHorario = async (id: string) => {
-    if (!confirm('¿Eliminar este horario?')) return;
-    try {
-      await apiClient.deleteHorario(id);
-      toast({ title: "Horario eliminado" });
-      cargarDatos();
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    }
+  const eliminarHorario = (id: string) => {
+    setConfirmAdminAction({ tipo: "horario", id: String(id) });
   };
 
   const crearDiaFestivo = async () => {
@@ -519,14 +556,8 @@ export default function ConfiguracionAvanzada() {
     setDialogEditarFestivoAbierto(true);
   };
 
-  const eliminarDiaFestivo = async (id: string) => {
-    try {
-      await apiClient.deleteDiaFestivo(id);
-      toast({ title: "Día festivo eliminado" });
-      cargarDatos();
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    }
+  const eliminarDiaFestivo = (id: string) => {
+    setConfirmAdminAction({ tipo: "festivo", id: String(id) });
   };
 
 
@@ -553,46 +584,43 @@ export default function ConfiguracionAvanzada() {
     }
   };
 
-  const importarBackupJSON = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const importarBackupJSON = (event: React.ChangeEvent<HTMLInputElement>) => {
     const archivo = event.target.files?.[0];
+    event.target.value = "";
     if (!archivo) return;
-
-    if (!confirm('⚠️ ADVERTENCIA: Esto reemplazará TODOS los datos actuales. ¿Continuar?')) {
-      return;
-    }
-
-    try {
-      const formData = new FormData();
-      formData.append('archivo', archivo);
-      
-      const response = await fetch('/api/backup/import/json', {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: formData
-      });
-
-      if (response.ok) {
-        toast({ title: "Backup JSON importado exitosamente" });
-        cargarDatos();
-      } else {
-        throw new Error('Error al importar backup');
-      }
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" });
-    }
+    setConfirmAdminAction({ tipo: "import_json", archivo });
   };
 
-  const limpiarLogsAntiguos = async () => {
-    if (!confirm('¿Eliminar logs mayores a 90 días?')) return;
+  const limpiarLogsAntiguos = () => {
+    setConfirmAdminAction({ tipo: "logs" });
+  };
+
+  const ejecutarConfirmAdminAction = async () => {
+    if (!confirmAdminAction) return;
+    const accion = confirmAdminAction;
+    setConfirmAdminAction(null);
+
     try {
-      const result = await apiClient.limpiarLogs(90);
-      toast({ 
-        title: "Logs eliminados", 
-        description: result.message || `${result.deletedCount} registros eliminados` 
-      });
-      cargarDatos();
+      if (accion.tipo === "horario" && accion.id) {
+        await apiClient.deleteHorario(accion.id);
+        toast({ title: "Horario eliminado" });
+        cargarDatos();
+      } else if (accion.tipo === "festivo" && accion.id) {
+        await apiClient.deleteDiaFestivo(accion.id);
+        toast({ title: "Día festivo eliminado" });
+        cargarDatos();
+      } else if (accion.tipo === "logs") {
+        const result = await apiClient.limpiarLogs(90);
+        toast({
+          title: "Logs eliminados",
+          description: result.message || `${result.deletedCount} registros eliminados`,
+        });
+        cargarDatos();
+      } else if (accion.tipo === "import_json" && accion.archivo) {
+        await apiClient.importarJSON(accion.archivo);
+        toast({ title: "Backup JSON importado exitosamente" });
+        cargarDatos();
+      }
     } catch (error: any) {
       toast({ title: "Error", description: error.message, variant: "destructive" });
     }
@@ -737,7 +765,7 @@ export default function ConfiguracionAvanzada() {
                 </div>
               </div>
             </CardHeader>
-            <CardContent>
+            <CardContent className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
@@ -746,29 +774,73 @@ export default function ConfiguracionAvanzada() {
                     <TableHead>Rol</TableHead>
                     <TableHead>Estado</TableHead>
                     <TableHead>Último Acceso</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {usuarios.map(usuario => (
-                    <TableRow key={usuario.id}>
-                      <TableCell>{usuario.nombre_completo || usuario.username}</TableCell>
-                      <TableCell>{usuario.email}</TableCell>
-                      <TableCell>
-                        <span className="px-2 py-1 bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200 rounded text-xs">
-                          {usuario.rol}
-                        </span>
-                      </TableCell>
-                      <TableCell>
-                        {usuario.activo ? 
-                          <span className="text-green-600 dark:text-green-400">Activo</span> : 
-                          <span className="text-red-600 dark:text-red-400">Inactivo</span>
-                        }
-                      </TableCell>
-                      <TableCell className="text-sm text-gray-500">
-                        {usuario.ultimo_acceso ? new Date(usuario.ultimo_acceso).toLocaleString('es-ES') : 'Nunca'}
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                  {usuarios.map(usuario => {
+                    const esPropioUsuario = String(usuario.id) === String(user?.id);
+                    return (
+                      <TableRow key={usuario.id}>
+                        <TableCell className="font-medium">
+                          <div>{usuario.nombre_completo || usuario.username}</div>
+                          <div className="text-xs text-muted-foreground">@{usuario.username}</div>
+                        </TableCell>
+                        <TableCell>{usuario.email}</TableCell>
+                        <TableCell>
+                          <Select
+                            value={usuario.rol}
+                            disabled={esPropioUsuario}
+                            onValueChange={(nuevoRol) => cambiarRolUsuario(usuario.id, nuevoRol)}
+                          >
+                            <SelectTrigger className="w-[145px] h-8 text-xs">
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="admin">admin</SelectItem>
+                              <SelectItem value="instructor">instructor</SelectItem>
+                              <SelectItem value="asistente">asistente</SelectItem>
+                              <SelectItem value="recepcionista">recepcionista</SelectItem>
+                              <SelectItem value="usuario">usuario</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </TableCell>
+                        <TableCell>
+                          {usuario.activo ? (
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium text-sm">Activo</span>
+                          ) : (
+                            <span className="text-destructive font-medium text-sm">Inactivo</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {usuario.ultimo_acceso ? new Date(usuario.ultimo_acceso).toLocaleString('es-ES') : 'Nunca'}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1.5">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={esPropioUsuario}
+                              onClick={() => toggleEstadoUsuario(usuario)}
+                              title={usuario.activo ? "Desactivar cuenta" : "Activar cuenta"}
+                            >
+                              <Power className="w-3.5 h-3.5 mr-1" />
+                              {usuario.activo ? "Desactivar" : "Activar"}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => desbloquearCuentaUsuario(usuario)}
+                              title="Desbloquear cuenta por intentos fallidos"
+                            >
+                              <Unlock className="w-3.5 h-3.5 mr-1" />
+                              Desbloquear
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             </CardContent>
@@ -1539,12 +1611,12 @@ export default function ConfiguracionAvanzada() {
                           </TableCell>
                           <TableCell>
                             <span className={`px-2 py-1 rounded text-xs font-medium ${
-                              log.accion === 'LOGIN' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
+                              log.accion === 'LOGIN' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' :
                               log.accion === 'LOGOUT' ? 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200' :
-                              log.accion === 'CREATE' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' :
-                              log.accion === 'UPDATE' ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200' :
-                              log.accion === 'DELETE' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
-                              log.accion === 'EXPORT' || log.accion === 'IMPORT' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' :
+                              log.accion === 'CREAR' || log.accion === 'CREATE' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200' :
+                              log.accion === 'ACTUALIZAR' || log.accion === 'CONFIGURAR' || log.accion === 'UPDATE' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200' :
+                              log.accion === 'ELIMINAR' || log.accion === 'DELETE' ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200' :
+                              log.accion === 'EXPORTAR' || log.accion === 'IMPORTAR' || log.accion === 'EXPORT' || log.accion === 'IMPORT' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200' :
                               'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-200'
                             }`}>
                               {log.accion}
@@ -1571,6 +1643,34 @@ export default function ConfiguracionAvanzada() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={Boolean(confirmAdminAction)}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAdminAction(null);
+        }}
+        title={
+          confirmAdminAction?.tipo === "import_json"
+            ? "Importar Respaldo JSON"
+            : confirmAdminAction?.tipo === "logs"
+              ? "Limpiar Registros Antiguos"
+              : confirmAdminAction?.tipo === "festivo"
+                ? "Eliminar Día Festivo"
+                : "Eliminar Horario"
+        }
+        description={
+          confirmAdminAction?.tipo === "import_json"
+            ? "Esta operación importará los registros del archivo JSON sobre la base de datos actual. ¿Deseas continuar?"
+            : confirmAdminAction?.tipo === "logs"
+              ? "¿Estás seguro de eliminar los registros de auditoría con más de 90 días de antigüedad?"
+              : confirmAdminAction?.tipo === "festivo"
+                ? "¿Deseas eliminar este día festivo del calendario del dojo?"
+                : "¿Deseas eliminar este horario de clase?"
+        }
+        confirmText="Confirmar"
+        cancelText="Cancelar"
+        onConfirm={ejecutarConfirmAdminAction}
+      />
     </div>
   );
 }
